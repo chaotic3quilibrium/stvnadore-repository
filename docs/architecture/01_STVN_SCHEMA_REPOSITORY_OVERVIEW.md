@@ -1,8 +1,8 @@
 # STVN Architectural Specification: Schema Repository Server Overview
 
-**Document ID**: STVN-SPEC-REPO-01  
-**Status**: Canonical Specification  
-**Version**: 1.0.0  
+**Document ID**: STVN-SPEC-REPO-01
+**Status**: Canonical Specification
+**Version**: 1.0.0
 **Compliance**: Mandatory for all STVN ecosystem server implementations.
 
 ---
@@ -16,9 +16,9 @@ The STVN Schema Repository is a high-throughput, non-blocking Content-Addressabl
 3. **Strict Immutability Invariant**: Schema mutations are strictly prohibited. Publishing an existing schema name with a different cryptographic hash produces an HTTP 409 Conflict.
 4. **Self-Healing Background Projection Sweeper**: A background virtual thread asynchronously scans the physical CAS directory, validates AST hashes, reconciles missing index entries, and quarantines corrupted files.
 
-`mermaid
+```mermaid
 flowchart TD
-    Client["Client / IDE Plugin"] -->|POST /api/v1/schemas/{name}| Handler["SchemaPublishHandler\n(Virtual Threads)"]
+    Client["Client / IDE Plugin"] -->|"POST /api/v1/schemas/{name}"| Handler["SchemaPublishHandler\n(Virtual Threads)"]
     Handler -->|1. Parse & Validate| Core["STVN Core SDK\n(StvnCompiler)"]
     Handler -->|2. Compute SHA-256| Hasher["StvnSchemaHasher"]
     Handler -->|3. Write Envelope| CAS["FileSystemCasStorage\n(2/62 Sharding: aa/bb...stvn_cas)"]
@@ -30,7 +30,7 @@ flowchart TD
         Sweeper -->|Reconcile| DB
         Sweeper -->|Invalid AST / Hash Mismatch| Quarantine[".quarantine/"]
     end
-`
+```
 
 ---
 
@@ -44,7 +44,7 @@ All schemas are written to disk using their 64-character lowercase hexadecimal S
 
 ### CAS Envelope Document Format
 Raw schema sources are wrapped in a canonical STVN tuple envelope:
-`stvn
+```stvn
 {
   :defs {
     :SchemaName :String
@@ -53,36 +53,36 @@ Raw schema sources are wrapped in a canonical STVN tuple envelope:
   :type :Tuple(:SchemaName :StvnInclf)
   :body (
     "UserProfile"
-    \"\"\"->[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]
+    """->[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]
     :defs {
       :UserId :Uint64
       :UserName :StringNonEmpty
     }
-    [SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]\"\"\"
+    [SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]"""
   )
 }
-`
+```
 
 ---
 
 ## 3. Relational Schema Catalog (PostgreSQL & H2)
 
-### Table: ersion_catalog
-| Column | Type | Constraints | Description |
-|:---|:---|:---|:---|
-| schema_name | VARCHAR(256) | PRIMARY KEY | Nominal schema identifier |
-| shape_signature | TEXT | NOT NULL | Flattened AST structural shape signature |
-| cas_hash | CHAR(64) | NOT NULL, UNIQUE | Cryptographic SHA-256 CAS address |
-| created_at | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Initial registration timestamp |
+### Table: version_catalog
+| Column          | Type         | Constraints               | Description                              |
+|:----------------|:-------------|:--------------------------|:-----------------------------------------|
+| schema_name     | VARCHAR(256) | PRIMARY KEY               | Nominal schema identifier                |
+| shape_signature | TEXT         | NOT NULL                  | Flattened AST structural shape signature |
+| cas_hash        | CHAR(64)     | NOT NULL, UNIQUE          | Cryptographic SHA-256 CAS address        |
+| created_at      | TIMESTAMP    | DEFAULT CURRENT_TIMESTAMP | Initial registration timestamp           |
 
 ### Table: schema_source_audit
-| Column | Type | Constraints | Description |
-|:---|:---|:---|:---|
-| id | BIGSERIAL | PRIMARY KEY | Monotonic audit sequence number |
-| schema_name | VARCHAR(256) | NOT NULL | Schema name |
-| cas_hash | CHAR(64) | NOT NULL | Content hash |
-| source_text | TEXT | NOT NULL | Author-submitted source code |
-| published_at | TIMESTAMP | DEFAULT CURRENT_TIMESTAMP | Publication timestamp |
+| Column       | Type         | Constraints               | Description                     |
+|:-------------|:-------------|:--------------------------|:--------------------------------|
+| id           | BIGSERIAL    | PRIMARY KEY               | Monotonic audit sequence number |
+| schema_name  | VARCHAR(256) | NOT NULL                  | Schema name                     |
+| cas_hash     | CHAR(64)     | NOT NULL                  | Content hash                    |
+| source_text  | TEXT         | NOT NULL                  | Author-submitted source code    |
+| published_at | TIMESTAMP    | DEFAULT CURRENT_TIMESTAMP | Publication timestamp           |
 
 ---
 
