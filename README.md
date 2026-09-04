@@ -1,6 +1,6 @@
 # STVN Schema Repository Server (`stvnadore-repository`)
 
-[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.0.0-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/tree/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
+[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.0.0-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
 [![Java 21 LTS](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Javalin Framework](https://img.shields.io/badge/Javalin-6.3.0-purple.svg)](https://javalin.io/)
 [![Storage Topology](https://img.shields.io/badge/Storage-2%2F62%20CAS%20Sharding-orange.svg)]()
