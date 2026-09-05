@@ -13,6 +13,15 @@ public interface SchemaRepositoryEngine {
     PublishResult publish(PublishRequest request);
 
     /**
+     * Validates, stores, and indexes a pre-verified binary STVN payload.
+     *
+     * @param request the schema publication command containing the binary payload
+     * @param root the pre-verified root pointer
+     * @return the publication outcome
+     */
+    PublishResult publishBinary(PublishRequest request, org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer root);
+
+    /**
      * Looks up schema metadata matching a nominal name and structural shape signature.
      *
      * @param schemaName the schema name

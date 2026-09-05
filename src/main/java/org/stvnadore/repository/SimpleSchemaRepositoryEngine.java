@@ -13,7 +13,13 @@ import org.stvnadore.repository.ports.CasStoragePort;
 import org.stvnadore.repository.ports.IndexRepositoryPort;
 import org.stvnadore.repository.ports.VersionCatalogCache;
 
+import org.stvnadore.core.binary.StvnBinaryDecoder;
+import org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer;
+
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +55,17 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
     public PublishResult publish(PublishRequest request) {
         String sourceText = request.sourceText();
         String schemaName = request.schemaName();
+
+        if (sourceText == null && request.binaryPayload() != null) {
+            try {
+                RootPointer root = StvnBinaryDecoder.open(ByteBuffer.wrap(request.binaryPayload()));
+                return publishBinary(request, root);
+            } catch (Exception e) {
+                return new PublishResult.ValidationError(List.of(
+                    new CompileDiagnostic("Binary decode failed: " + e.getMessage(), 1, 1)
+                ));
+            }
+        }
 
         if (sourceText == null || sourceText.isBlank()) {
             return new PublishResult.ValidationError(List.of(
@@ -126,6 +143,74 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         // 7. Write to Relational Index and Audit Log
         try {
             indexRepositoryPort.save(metadata, sourceText);
+            versionCatalogCache.put(metadata);
+            return new PublishResult.Success(metadata);
+        } catch (DuplicateIndexException e) {
+            return new PublishResult.IdempotentCollision(metadata);
+        } catch (Exception e) {
+            return new PublishResult.IndexingDeferred(metadata);
+        }
+    }
+
+    @Override
+    public PublishResult publishBinary(PublishRequest request, RootPointer root) {
+        String schemaName = request.schemaName();
+        byte[] binaryPayload = request.binaryPayload();
+
+        if (binaryPayload == null || binaryPayload.length == 0) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("Binary payload cannot be empty", 1, 1)
+            ));
+        }
+
+        String casHash;
+        String shapeSignature;
+
+        if (root.schema().isPresent()) {
+            ResolvedSchema schema = root.schema().get();
+            try {
+                byte[] hashBytes = StvnSchemaHasher.computeSha256(schema);
+                casHash = HexFormat.of().formatHex(hashBytes);
+            } catch (Exception e) {
+                return new PublishResult.ValidationError(List.of(
+                    new CompileDiagnostic("Schema hashing failed: " + e.getMessage(), 1, 1)
+                ));
+            }
+            shapeSignature = "binary:" + schemaName + ":" + root.context().encodingStrategy().name();
+        } else {
+            try {
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] hashBytes = digest.digest(binaryPayload);
+                casHash = HexFormat.of().formatHex(hashBytes);
+            } catch (NoSuchAlgorithmException e) {
+                throw new RuntimeException("SHA-256 algorithm missing from environment", e);
+            }
+            shapeSignature = "binary:" + root.context().encodingStrategy().name();
+        }
+
+        SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash);
+
+        // Check for schema name collision / mutation attempt
+        Optional<SchemaMetadata> existingOpt = indexRepositoryPort.findBySchemaName(schemaName);
+        if (existingOpt.isPresent()) {
+            SchemaMetadata existing = existingOpt.get();
+            if (existing.casHash().equalsIgnoreCase(casHash)) {
+                return new PublishResult.IdempotentCollision(metadata);
+            } else {
+                return new PublishResult.SchemaConflict(schemaName, existing.casHash(), casHash);
+            }
+        }
+
+        // Write binary payload to CAS Storage
+        try {
+            casStoragePort.write(casHash, binaryPayload);
+        } catch (Exception e) {
+            return new PublishResult.IndexingDeferred(metadata);
+        }
+
+        // Write to Relational Index and Audit Log
+        try {
+            indexRepositoryPort.save(metadata, "BINARY_PAYLOAD:" + casHash);
             versionCatalogCache.put(metadata);
             return new PublishResult.Success(metadata);
         } catch (DuplicateIndexException e) {

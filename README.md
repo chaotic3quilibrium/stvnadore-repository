@@ -1,6 +1,6 @@
 # STVN Schema Repository Server (`stvnadore-repository`)
 
-[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.0.0-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
+[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.1.0--SNAPSHOT-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
 [![Java 21 LTS](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Javalin Framework](https://img.shields.io/badge/Javalin-6.3.0-purple.svg)](https://javalin.io/)
 [![Storage Topology](https://img.shields.io/badge/Storage-2%2F62%20CAS%20Sharding-orange.svg)]()
@@ -10,7 +10,7 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
 
 ---
 
-- Version: 1.0.0 - 2026.08.31
+- Version: 1.1.0-SNAPSHOT - 2026.09.05
 
 ---
 
@@ -78,25 +78,25 @@ flowchart TD
 ## REST API Specification
 
 ### Media Type Standard
-All schema payload bodies must use the MIME Content-Type: `application/stvn`.
+Schema payload bodies must use the MIME Content-Type: `application/stvn` (for textual schemas) or `application/stvn-bin` / `application/octet-stream` (for binary schemas).
 
 ---
 
 ### 1. Publish Schema
-Stores and indexes a new canonical STVN schema. Mutations to an existing schema name with a different cryptographic hash are rejected.
+Stores and indexes a new canonical STVN schema. Mutations to an existing schema name with a different cryptographic hash are rejected. Binary streams undergo hardware-accelerated CRC-32C verification and Byte 4 wire governance.
 
 * **Method**: `POST`
-* **Path**: `/api/v1/schemas/{name}`
-* **Headers**: `Content-Type: application/stvn`
-* **Request Body**: Raw STVN schema source code.
+* **Path**: `/api/v1/schemas/{name}` or `/api/v1/artifacts/binary/{name}`
+* **Headers**: `Content-Type: application/stvn` or `application/stvn-bin`
+* **Request Body**: Raw STVN schema source code or verified STVN binary stream.
 
 #### Response Status Codes:
 * `201 Created`: Schema successfully published and indexed.
 * `200 OK`: Idempotent publication (exact schema name and hash already exist).
 * `202 Accepted`: CAS write succeeded; relational indexing deferred to background sweeper.
 * `409 Conflict`: Schema name exists with a different hash. Mutations are prohibited.
-* `415 Unsupported Media Type`: Request `Content-Type` is not `application/stvn`.
-* `422 Unprocessable Entity`: STVN compilation diagnostics reported syntax or semantic errors.
+* `415 Unsupported Media Type`: Request `Content-Type` is not supported.
+* `422 Unprocessable Entity`: STVN compilation diagnostics reported syntax/semantic errors, CRC-32C trailer mismatch, or strategy sentinel `0x7` detected.
 
 #### Example Request:
 ```bash
