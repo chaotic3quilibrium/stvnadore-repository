@@ -8,6 +8,9 @@ import org.stvnadore.repository.infrastructure.StvnCasPackager;
 import org.stvnadore.repository.ports.CasStoragePort;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 import static org.mockito.Mockito.*;
@@ -183,5 +186,78 @@ public class SchemaPublishHandlerTest {
         handler.handleGetCasPayload(ctx);
 
         verify(ctx).status(404);
+    }
+
+    @Test
+    public void testPublishBinarySuccess() throws Exception {
+        String name = "valid-binary";
+        byte[] payload = Files.readAllBytes(Paths.get("target/test-classes/fixtures/valid-syntax/crc32c_trailer_valid.stvn_bin"));
+        SchemaMetadata metadata = new SchemaMetadata(name, "ShapeSig", "Hash123");
+        PublishResult result = new PublishResult.Success(metadata);
+
+        when(ctx.contentType()).thenReturn("application/stvn-bin");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.bodyAsBytes()).thenReturn(payload);
+        when(engine.publishBinary(any(), any())).thenReturn(result);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(201);
+        verify(ctx).json(metadata);
+    }
+
+    @Test
+    public void testPublishBinaryEmptyPayloadThrows400() throws Exception {
+        String name = "empty-binary";
+        when(ctx.contentType()).thenReturn("application/stvn-bin");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.bodyAsBytes()).thenReturn(new byte[0]);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(400);
+        verifyNoInteractions(engine);
+    }
+
+    @Test
+    public void testPublishBinaryInvalidMagicBytesThrows400() throws Exception {
+        String name = "bad-magic";
+        byte[] badMagic = new byte[]{0x00, 0x01, 0x02, 0x03, 0x04, 0x05};
+        when(ctx.contentType()).thenReturn("application/stvn-bin");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.bodyAsBytes()).thenReturn(badMagic);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(400);
+        verifyNoInteractions(engine);
+    }
+
+    @Test
+    public void testPublishBinaryMalformedCrc32cThrows422() throws Exception {
+        String name = "tampered-crc";
+        byte[] tampered = Files.readAllBytes(Paths.get("target/test-classes/fixtures/invalid-syntax/binary_crc32c_payload_tampered.stvn_bin"));
+        when(ctx.contentType()).thenReturn("application/stvn-bin");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.bodyAsBytes()).thenReturn(tampered);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(422);
+        verifyNoInteractions(engine);
+    }
+
+    @Test
+    public void testPublishBinarySentinel0x7Throws422() throws Exception {
+        String name = "sentinel-0x7";
+        byte[] sentinel = Files.readAllBytes(Paths.get("target/test-classes/fixtures/invalid-syntax/binary_strategy_sentinel_0x7.stvn_bin"));
+        when(ctx.contentType()).thenReturn("application/stvn-bin");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.bodyAsBytes()).thenReturn(sentinel);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(422);
+        verifyNoInteractions(engine);
     }
 }
