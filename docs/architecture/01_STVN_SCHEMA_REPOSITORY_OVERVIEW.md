@@ -2,8 +2,32 @@
 
 **Document ID**: STVN-SPEC-REPO-01
 **Status**: Canonical Specification
-**Version**: 1.1.0-SNAPSHOT
+**Version**: 1.1.0
 **Compliance**: Mandatory for all STVN ecosystem server implementations.
+
+---
+
+# Table of Contents <!-- omit in toc -->
+
+<!-- TOC -->
+* [STVN Architectural Specification: Schema Repository Server Overview](#stvn-architectural-specification-schema-repository-server-overview)
+* [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
+  * [1. Purpose & Core Responsibilities](#1-purpose--core-responsibilities)
+  * [2. Content-Addressable Storage (CAS) Specification](#2-content-addressable-storage-cas-specification)
+    * [2/62 Filesystem Sharding Layout](#262-filesystem-sharding-layout)
+    * [Enum Subset CAS Invariant](#enum-subset-cas-invariant)
+    * [CAS Envelope Document Format](#cas-envelope-document-format)
+  * [3. Relational Schema Catalog (PostgreSQL & H2)](#3-relational-schema-catalog-postgresql--h2)
+    * [Table: version_catalog](#table-version_catalog)
+    * [Table: schema_source_audit](#table-schema_source_audit)
+  * [4. REST API Specification](#4-rest-api-specification)
+    * [1. Publish Schema (Dual-Mode Text or Binary)](#1-publish-schema-dual-mode-text-or-binary)
+    * [2. Publish Binary Artifact (Dedicated Route)](#2-publish-binary-artifact-dedicated-route)
+    * [3. Lookup Schema by Shape Signature](#3-lookup-schema-by-shape-signature)
+    * [4. Retrieve Raw CAS Schema Payload](#4-retrieve-raw-cas-schema-payload)
+    * [5. HTTP Error Mapping Taxonomy](#5-http-error-mapping-taxonomy)
+  * [5. Background Projection Sweeper & Quarantine](#5-background-projection-sweeper--quarantine)
+<!-- TOC -->
 
 ---
 
@@ -144,16 +168,16 @@ Raw schema sources are wrapped in a canonical STVN tuple envelope:
   * 404 Not Found: CAS file not found on disk.
 
 ### 5. HTTP Error Mapping Taxonomy
-| Status Code | Status Name | Root Cause |
-|:---|:---|:---|
-| 400 | Bad Request | Empty payload, invalid STVN magic header bytes, or non-64 hex char hash. |
-| 404 | Not Found | Schema shape signature or CAS hash not found. |
-| 409 | Conflict | Schema name already registered with a different cryptographic hash. |
-| 415 | Unsupported Media Type | Missing or invalid Content-Type header. |
-| 422 | Unprocessable Entity | AST compilation error, CRC-32C trailer mismatch, payload < 9 bytes, or strategy sentinel 0x7. |
-| 200 | OK | Idempotent duplicate submission. |
-| 201 | Created | Successful schema registration and persistence. |
-| 202 | Accepted | CAS write succeeded; relational catalog update deferred to background sweeper. |
+| Status Code | Status Name            | Root Cause                                                                                    |
+|:------------|:-----------------------|:----------------------------------------------------------------------------------------------|
+| 400         | Bad Request            | Empty payload, invalid STVN magic header bytes, or non-64 hex char hash.                      |
+| 404         | Not Found              | Schema shape signature or CAS hash not found.                                                 |
+| 409         | Conflict               | Schema name already registered with a different cryptographic hash.                           |
+| 415         | Unsupported Media Type | Missing or invalid Content-Type header.                                                       |
+| 422         | Unprocessable Entity   | AST compilation error, CRC-32C trailer mismatch, payload < 9 bytes, or strategy sentinel 0x7. |
+| 200         | OK                     | Idempotent duplicate submission.                                                              |
+| 201         | Created                | Successful schema registration and persistence.                                               |
+| 202         | Accepted               | CAS write succeeded; relational catalog update deferred to background sweeper.                |
 
 ---
 
