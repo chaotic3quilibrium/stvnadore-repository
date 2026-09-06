@@ -1,6 +1,6 @@
 # STVN Schema Repository Server (`stvnadore-repository`)
 
-[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.1.0--SNAPSHOT-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
+[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.1.0-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
 [![Java 21 LTS](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Javalin Framework](https://img.shields.io/badge/Javalin-6.3.0-purple.svg)](https://javalin.io/)
 [![Storage Topology](https://img.shields.io/badge/Storage-2%2F62%20CAS%20Sharding-orange.svg)]()
@@ -10,7 +10,7 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
 
 ---
 
-- Version: 1.1.0-SNAPSHOT - 2026.09.05
+- Version: 1.1.0 - 2026.09.06
 
 ---
 
@@ -23,9 +23,11 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
   * [REST API Specification](#rest-api-specification)
     * [Media Type Standard](#media-type-standard)
     * [1. Publish Schema (Dual-Mode Text or Binary)](#1-publish-schema-dual-mode-text-or-binary)
+      * [Response Status Codes:](#response-status-codes)
       * [Example Request:](#example-request)
       * [Example 201 Response Body:](#example-201-response-body)
     * [2. Publish Binary Artifact (Dedicated Route)](#2-publish-binary-artifact-dedicated-route)
+      * [Response Status Codes:](#response-status-codes-1)
       * [Example Request:](#example-request-1)
     * [3. Lookup Schema by Shape Signature](#3-lookup-schema-by-shape-signature)
       * [Example Request:](#example-request-2)
@@ -46,7 +48,13 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
     * [Production Execution with PostgreSQL & Docker](#production-execution-with-postgresql--docker)
 * [Support](#support)
   * [License](#license)
-    * [Alternative Commercial Licensing Options](#alternative-commercial-licensing-options)
+    * [GNU AFFERO GENERAL PUBLIC LICENSE](#gnu-affero-general-public-license)
+    * [REALLY HATE the GNU AFFERO GENERAL PUBLIC LICENSE, a.k.a. AGPLv3?](#really-hate-the-gnu-affero-general-public-license-aka-agplv3)
+    * [FYI, I'd prefer to move stvnadore-core to an Apache 2.0 license](#fyi-id-prefer-to-move-stvnadore-core-to-an-apache-20-license)
+    * [I'm not looking to win the lottery, I just don't want to work for free](#im-not-looking-to-win-the-lottery-i-just-dont-want-to-work-for-free)
+* [Version History](#version-history)
+  * [v1.1.0](#v110)
+  * [v1.0.2](#v102)
 <!-- TOC -->
 
 ---
@@ -195,16 +203,16 @@ curl -X GET http://localhost:8080/api/v1/schemas/cas/e3b0c44298fc1c149afbf4c8996
 ### 5. HTTP Error Mapping Taxonomy
 The repository uses explicit HTTP status codes to distinguish client transport errors, framing violations, and semantic failures:
 
-| Status Code | Status Name | Trigger Condition | Source Exception | Response Structure |
-|:---|:---|:---|:---|:---|
-| `400` | Bad Request | Empty payload body, invalid magic header (`!= "STVN"`), or invalid CAS hash string length (`!= 64 hex chars`). | `IllegalArgumentException` | `{"error": "Bad Request", "message": "..."}` |
-| `404` | Not Found | Schema shape signature not found in catalog, or CAS file missing on disk. | `Optional.empty()` | Empty body |
-| `409` | Conflict | Schema name already registered with a different cryptographic hash. Mutations are prohibited. | `PublishResult.SchemaConflict` | `{"error": "Conflict", "message": "Schema name '...' already exists..."}` |
-| `415` | Unsupported Media Type | Missing `Content-Type` header or header value not recognized (`!= application/stvn` or `application/stvn-bin`). | Content type guard | `{"error": "Unsupported Media Type", "message": "..."}` |
-| `422` | Unprocessable Entity | AST compiler diagnostics, CRC-32C trailer mismatch, stream size under 9 bytes with CRC enabled, or strategy sentinel `0x7` detected. | `PublishResult.ValidationError`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` objects or `{"error": "Malformed Payload", "message": "..."}` |
-| `200` | OK | Idempotent publication. Schema name and hash match existing registration. | `PublishResult.IdempotentCollision` | `SchemaMetadata` JSON object |
-| `201` | Created | Schema validated, persisted to CAS storage, and cataloged. | `PublishResult.Success` | `SchemaMetadata` JSON object |
-| `202` | Accepted | CAS write succeeded; relational database indexing deferred to background sweeper. | `PublishResult.IndexingDeferred` | `SchemaMetadata` JSON object |
+| Status Code | Status Name            | Trigger Condition                                                                                                                    | Source Exception                                                                                     | Response Structure                                                                        |
+|:------------|:-----------------------|:-------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------|:------------------------------------------------------------------------------------------|
+| `400`       | Bad Request            | Empty payload body, invalid magic header (`!= "STVN"`), or invalid CAS hash string length (`!= 64 hex chars`).                       | `IllegalArgumentException`                                                                           | `{"error": "Bad Request", "message": "..."}`                                              |
+| `404`       | Not Found              | Schema shape signature not found in catalog, or CAS file missing on disk.                                                            | `Optional.empty()`                                                                                   | Empty body                                                                                |
+| `409`       | Conflict               | Schema name already registered with a different cryptographic hash. Mutations are prohibited.                                        | `PublishResult.SchemaConflict`                                                                       | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`                 |
+| `415`       | Unsupported Media Type | Missing `Content-Type` header or header value not recognized (`!= application/stvn` or `application/stvn-bin`).                      | Content type guard                                                                                   | `{"error": "Unsupported Media Type", "message": "..."}`                                   |
+| `422`       | Unprocessable Entity   | AST compiler diagnostics, CRC-32C trailer mismatch, stream size under 9 bytes with CRC enabled, or strategy sentinel `0x7` detected. | `PublishResult.ValidationError`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` objects or `{"error": "Malformed Payload", "message": "..."}` |
+| `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                                            | `PublishResult.IdempotentCollision`                                                                  | `SchemaMetadata` JSON object                                                              |
+| `201`       | Created                | Schema validated, persisted to CAS storage, and cataloged.                                                                           | `PublishResult.Success`                                                                              | `SchemaMetadata` JSON object                                                              |
+| `202`       | Accepted               | CAS write succeeded; relational database indexing deferred to background sweeper.                                                    | `PublishResult.IndexingDeferred`                                                                     | `SchemaMetadata` JSON object                                                              |
 
 ---
 
@@ -256,7 +264,7 @@ The physical `.stvn_cas` file encloses the canonical schema in a standard AST tu
 ```
 
 ### Enum Subset CAS Hashing Invariants & Non-Collision Guarantees
-STVN v1.1.0-SNAPSHOT introduces nominal enum subset views (`#filterIncl`, `#filterExcl`). In prior versions, structural hashing could generate identical CAS digests for a subset and its parent enum.
+STVN v1.1.0 introduces nominal enum subset views (`#filterIncl`, `#filterExcl`). In prior versions, structural hashing could generate identical CAS digests for a subset and its parent enum.
 
 `StvnSchemaHasher` digests all subset attributes in sequential order:
 1. `subsetName:<name>`
@@ -328,16 +336,44 @@ export DB_AUTO_INIT="true"
 
 ## License
 
-The `stvnadore-repository` codebase is licensed under the **GNU Affero General Public License Version 3 (AGPLv3)**.
+### [GNU AFFERO GENERAL PUBLIC LICENSE](https://github.com/chaotic3quilibrium/stvnadore-core/blob/main/LICENSE.md)
 
-Review the complete license agreement in [LICENSE.md](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/LICENSE.md).
+The stvnadore-repository files are free software: you can redistribute it and/or modify it under the terms of the GNU Affero General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 
-### Alternative Commercial Licensing Options
-Organizations requiring proprietary licensing terms without copyleft requirements may request a commercial license agreement.
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more details.
 
-Available license models include:
-* Commercial proprietary software licenses
-* Non-profit academic licenses
-* Government distribution licenses
+You should have received a copy of the [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.en.html) along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-Submit licensing inquiries to: <jim.oflaherty.jr+srrml@gmail.com>.
+---
+
+### REALLY HATE the GNU AFFERO GENERAL PUBLIC LICENSE, a.k.a. AGPLv3?
+
+- It was chosen entirely because of Amazon's/AWS's (and many other wealthy corporations) historic abuses and exploitation of FOSS (Free Open Source Software)
+- No Worries, I'd Love to Work with You
+
+If the AGPLv3 doesn't work for you, I would LOVE to work with you to generate a **custom/different/commercial/non-profit/government license** for stvnadore-core.
+
+Please email: <jim.oflaherty.jr+srrml@gmail.com>, letting us know what license you would prefer. I am happy to discuss this with you.
+
+---
+
+### FYI, I'd prefer to move stvnadore-core to an Apache 2.0 license
+
+---
+
+### I'm not looking to win the lottery, I just don't want to work for free
+
+---
+
+# Version History
+
+## v1.1.0
+
+- 2026.09.06
+- Implemented enum subset filtering with transitive chaining
+- Added Control Byte 4 bitwise partitioning (1:3:4) for CRC-32C, SchemaIdentityStrategy, and BinaryEncodingStrategy
+
+## v1.0.2
+
+- 2026.09.04
+- Initial release across all four repositories

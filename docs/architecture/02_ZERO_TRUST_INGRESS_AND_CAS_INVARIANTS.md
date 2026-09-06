@@ -2,8 +2,32 @@
 
 **Document ID**: STVN-SPEC-REPO-02  
 **Status**: Canonical Specification  
-**Version**: 1.1.0-SNAPSHOT  
+**Version**: 1.1.0  
 **Compliance**: Mandatory for all STVN ecosystem server and repository implementations.  
+
+---
+
+# Table of Contents <!-- omit in toc -->
+
+<!-- TOC -->
+* [STVN Architectural Specification: Zero-Trust Ingress Verification, Byte 4 Wire Governance, and Enum Subset CAS Invariants](#stvn-architectural-specification-zero-trust-ingress-verification-byte-4-wire-governance-and-enum-subset-cas-invariants)
+* [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
+  * [1. Architectural Purpose & Scope](#1-architectural-purpose--scope)
+  * [2. Zero-Trust Ingress Verification & Byte 4 Wire Governance](#2-zero-trust-ingress-verification--byte-4-wire-governance)
+    * [2.1 Wire Framing Specification](#21-wire-framing-specification)
+    * [2.2 Byte 4 Control Byte Bitfield Layout](#22-byte-4-control-byte-bitfield-layout)
+      * [1. Trailer Flag (Bit 7, Mask `0x80`): `HAS_TRAILER_CRC32C`](#1-trailer-flag-bit-7-mask-0x80-has_trailer_crc32c)
+      * [2. Wire Strategy (Bits 6..4, Mask `0x70`): `BinaryEncodingStrategy`](#2-wire-strategy-bits-64-mask-0x70-binaryencodingstrategy)
+      * [3. Schema Identity Strategy (Bits 3..0, Mask `0x0F`): `SchemaIdentityStrategy`](#3-schema-identity-strategy-bits-30-mask-0x0f-schemaidentitystrategy)
+    * [2.3 Hardware-Accelerated CRC-32C Validation Algorithm](#23-hardware-accelerated-crc-32c-validation-algorithm)
+  * [3. Enum Subset CAS Hashing Invariants & Non-Collision Guarantees](#3-enum-subset-cas-hashing-invariants--non-collision-guarantees)
+    * [3.1 Mathematical Model & Non-Collision Property](#31-mathematical-model--non-collision-property)
+    * [3.2 Invariants Enforced](#32-invariants-enforced)
+  * [4. REST Ingress Boundary & Dual-Mode Routing](#4-rest-ingress-boundary--dual-mode-routing)
+    * [4.1 Endpoint Signatures](#41-endpoint-signatures)
+  * [5. HTTP Error Mapping Taxonomy Matrix](#5-http-error-mapping-taxonomy-matrix)
+  * [6. Concurrency & Background Sweeper Invariants](#6-concurrency--background-sweeper-invariants)
+<!-- TOC -->
 
 ---
 
@@ -134,13 +158,13 @@ $$\text{CAS}(:\text{Status}) \ne \text{CAS}(:\text{ActiveStatus}) \ne \text{CAS}
 
 ### 4.1 Endpoint Signatures
 
-| Route Path | HTTP Method | Supported Content-Type | Pipeline Executed |
-|:---|:---:|:---|:---|
-| `/api/v1/schemas/{name}` | `POST` | `application/stvn` | Textual compilation via `StvnCompiler.analyze()`. |
-| `/api/v1/schemas/{name}` | `POST` | `application/stvn-bin`<br>`application/octet-stream` | Zero-trust binary verification via `StvnBinaryDecoder.open()`. |
-| `/api/v1/artifacts/binary/{name}` | `POST` | Any binary stream | Direct binary verification via `StvnBinaryDecoder.open()`. |
-| `/api/v1/schemas/{name}/shapes/{sig}` | `GET` | N/A | Queries catalog metadata by nominal name and shape signature. |
-| `/api/v1/schemas/cas/{hash}` | `GET` | N/A | Returns raw unpacked schema text by 64-character CAS hash. |
+| Route Path                            | HTTP Method | Supported Content-Type                               | Pipeline Executed                                              |
+|:--------------------------------------|:-----------:|:-----------------------------------------------------|:---------------------------------------------------------------|
+| `/api/v1/schemas/{name}`              |   `POST`    | `application/stvn`                                   | Textual compilation via `StvnCompiler.analyze()`.              |
+| `/api/v1/schemas/{name}`              |   `POST`    | `application/stvn-bin`<br>`application/octet-stream` | Zero-trust binary verification via `StvnBinaryDecoder.open()`. |
+| `/api/v1/artifacts/binary/{name}`     |   `POST`    | Any binary stream                                    | Direct binary verification via `StvnBinaryDecoder.open()`.     |
+| `/api/v1/schemas/{name}/shapes/{sig}` |    `GET`    | N/A                                                  | Queries catalog metadata by nominal name and shape signature.  |
+| `/api/v1/schemas/cas/{hash}`          |    `GET`    | N/A                                                  | Returns raw unpacked schema text by 64-character CAS hash.     |
 
 ---
 
@@ -148,16 +172,16 @@ $$\text{CAS}(:\text{Status}) \ne \text{CAS}(:\text{ActiveStatus}) \ne \text{CAS}
 
 The server maps boundary and compilation events to HTTP status codes:
 
-| Status Code | Status Name | Trigger Condition | Source Exception | Response Body Schema |
-|:---|:---|:---|:---|:---|
-| `400` | Bad Request | Binary body is empty (`0 bytes`), magic bytes invalid, or CAS hash length `!= 64`. | `IllegalArgumentException` | `{"error": "Bad Request", "message": "<reason>"}` |
-| `404` | Not Found | Schema shape signature or CAS file hash does not exist. | Query miss | Empty body |
-| `409` | Conflict | Schema name exists with a different cryptographic hash. Mutations are prohibited. | `PublishResult.SchemaConflict` | `{"error": "Conflict", "message": "Schema name '...' already exists..."}` |
-| `415` | Unsupported Media Type | Request `Content-Type` is null or not supported. | Media type guard | `{"error": "Unsupported Media Type", "message": "..."}` |
-| `422` | Unprocessable Entity | AST compiler diagnostics, CRC-32C trailer mismatch, buffer under 9 bytes, or strategy sentinel `0x7` detected. | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
-| `200` | OK | Idempotent publication. Schema name and hash match existing registration. | `PublishResult.IdempotentCollision` | `SchemaMetadata` JSON object |
-| `201` | Created | New schema verified, persisted to CAS, and cataloged. | `PublishResult.Success` | `SchemaMetadata` JSON object |
-| `202` | Accepted | CAS write succeeded; catalog indexing deferred to background sweeper. | `PublishResult.IndexingDeferred` | `SchemaMetadata` JSON object |
+| Status Code | Status Name            | Trigger Condition                                                                                              | Source Exception                                                                         | Response Body Schema                                                                    |
+|:------------|:-----------------------|:---------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------|:----------------------------------------------------------------------------------------|
+| `400`       | Bad Request            | Binary body is empty (`0 bytes`), magic bytes invalid, or CAS hash length `!= 64`.                             | `IllegalArgumentException`                                                               | `{"error": "Bad Request", "message": "<reason>"}`                                       |
+| `404`       | Not Found              | Schema shape signature or CAS file hash does not exist.                                                        | Query miss                                                                               | Empty body                                                                              |
+| `409`       | Conflict               | Schema name exists with a different cryptographic hash. Mutations are prohibited.                              | `PublishResult.SchemaConflict`                                                           | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`               |
+| `415`       | Unsupported Media Type | Request `Content-Type` is null or not supported.                                                               | Media type guard                                                                         | `{"error": "Unsupported Media Type", "message": "..."}`                                 |
+| `422`       | Unprocessable Entity   | AST compiler diagnostics, CRC-32C trailer mismatch, buffer under 9 bytes, or strategy sentinel `0x7` detected. | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
+| `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                      | `PublishResult.IdempotentCollision`                                                      | `SchemaMetadata` JSON object                                                            |
+| `201`       | Created                | New schema verified, persisted to CAS, and cataloged.                                                          | `PublishResult.Success`                                                                  | `SchemaMetadata` JSON object                                                            |
+| `202`       | Accepted               | CAS write succeeded; catalog indexing deferred to background sweeper.                                          | `PublishResult.IndexingDeferred`                                                         | `SchemaMetadata` JSON object                                                            |
 
 ---
 
