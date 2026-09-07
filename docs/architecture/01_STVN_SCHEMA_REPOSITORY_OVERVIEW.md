@@ -86,7 +86,7 @@ Raw schema sources are wrapped in a canonical STVN tuple envelope:
   :type :Tuple(:SchemaName :StvnInclf)
   :body (
     "UserProfile"
-    """->[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]
+    """[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]
     :defs {
       :UserId :Uint64
       :UserName :StringNonEmpty

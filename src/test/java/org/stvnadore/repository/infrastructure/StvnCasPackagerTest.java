@@ -26,7 +26,7 @@ public class StvnCasPackagerTest {
         assertTrue(envelope.contains(":type :Tuple(:SchemaName :StvnInclf)"));
         assertTrue(envelope.contains(":body ("));
         assertTrue(envelope.contains("\"user-profile\""));
-        assertTrue(envelope.contains("\"\"\"->[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]"));
+        assertTrue(envelope.contains("\"\"\"[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]"));
         assertTrue(envelope.contains("[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]\"\"\""));
 
         // Compile and parse via the upstream compiler to verify validity

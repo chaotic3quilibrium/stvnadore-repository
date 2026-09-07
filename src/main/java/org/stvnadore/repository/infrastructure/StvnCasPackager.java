@@ -32,7 +32,7 @@ public class StvnCasPackager {
                "  :type :Tuple(:SchemaName :StvnInclf)\n" +
                "  :body (\n" +
                "    \"" + schemaName + "\"\n" +
-               "    \"\"\"->[" + tag + "]\n" +
+               "    \"\"\"[" + tag + "]\n" +
                sourceText + "\n" +
                "    [" + tag + "]\"\"\"\n" +
                "  )\n" +
