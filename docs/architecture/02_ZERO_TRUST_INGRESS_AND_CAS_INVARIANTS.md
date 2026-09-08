@@ -33,7 +33,7 @@
 
 ## 1. Architectural Purpose & Scope
 
-This document specifies the ingress boundary security invariants and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.1.0-SNAPSHOT`.
+This document specifies the ingress boundary security invariants and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.1.1`.
 
 The server enforces two core design invariants:
 1. **Zero-Trust Binary Ingress Boundary:** Corrupted frames, tampered checksums, truncated buffers, and unauthorized strategy extensions are intercepted at the network edge and rejected prior to disk persistence.
@@ -129,7 +129,7 @@ if (hasTrailer) {
 ## 3. Enum Subset CAS Hashing Invariants & Non-Collision Guarantees
 
 ### 3.1 Mathematical Model & Non-Collision Property
-In STVN Specification §8 and v1.1.0-SNAPSHOT, an enum subset derives a constrained variant view from a parent enum definition.
+In STVN Specification §8 and v1.1.1, an enum subset derives a constrained variant view from a parent enum definition.
 
 `StvnSchemaHasher` digests all subset attributes in strict sequential order:
 
