@@ -1,6 +1,6 @@
 # STVN Schema Repository Server (`stvnadore-repository`)
 
-[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.1.1-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
+[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.2.0-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
 [![Java 21 LTS](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Javalin Framework](https://img.shields.io/badge/Javalin-6.3.0-purple.svg)](https://javalin.io/)
 [![Storage Topology](https://img.shields.io/badge/Storage-2%2F62%20CAS%20Sharding-orange.svg)]()
@@ -10,7 +10,7 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
 
 ---
 
-- Version: 1.1.1 - 2026.09.07
+- Version: 1.2.0 - 2026.09.12
 
 ---
 
@@ -53,6 +53,7 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
     * [FYI, I'd prefer to move stvnadore-core to an Apache 2.0 license](#fyi-id-prefer-to-move-stvnadore-core-to-an-apache-20-license)
     * [I'm not looking to win the lottery, I just don't want to work for free](#im-not-looking-to-win-the-lottery-i-just-dont-want-to-work-for-free)
 * [Version History](#version-history)
+  * [v1.2.0](#v120)
   * [v1.1.1](#v111)
   * [v1.1.0](#v110)
   * [v1.0.2](#v102)
@@ -265,7 +266,7 @@ The physical `.stvn_cas` file encloses the canonical schema in a standard AST tu
 ```
 
 ### Enum Subset CAS Hashing Invariants & Non-Collision Guarantees
-STVN v1.1.0 introduces nominal enum subset views (`#filterIncl`, `#filterExcl`). In prior versions, structural hashing could generate identical CAS digests for a subset and its parent enum.
+STVN v1.1.0 introduced nominal enum subset views (`#filterIncl`, `#filterExcl`). In prior versions, structural hashing could generate identical CAS digests for a subset and its parent enum.
 
 `StvnSchemaHasher` digests all subset attributes in sequential order:
 1. `subsetName:<name>`
@@ -368,10 +369,28 @@ Please email: <jim.oflaherty.jr+srrml@gmail.com>, letting us know what license y
 
 # Version History
 
+## v1.2.0
+
+- 2026.09.12
+- Integrated changes to `stvnadore-core`
+  - Standard prelude relocated to namespace `:org/stvnadore/prelude/*` and out of root, completely clearing the root namespace
+  - Atomic temporal primitives pruned to nominal prelude schemas
+  - Package enclosures (`:package`) with automatic LHS FQNI expansion
+  - Scoped `:use` with atomic unary `#strip` terminal slicing
+  - Hermetic flat payload tier (newly introduced `.stvn_f`) and flat schema tier (existing `.stvn_inclf`)
+  - Arbitrary bit-width integer overflow enforcement (BigInteger)
+  - Updated shared-fixtures conformance suite
+- Grammar-Kit BNF & JFlex lexer synchronized with `:package`, `:use`, and `#strip`
+- Dedicated `.stvn_f` file type and PSI file representation (`StvnFlatPayloadFile`)
+- 5 new real-time inspections registered (12 total in plugin suite)
+- Synthetic in-memory PSI bridge for prelude definitions (`StvnPreludeBridge`)
+- Error-resilient parsing preventing AST fracture on illegal syntax
+
+
 ## v1.1.1
 
 - 2026.09.07
-- Deprecated `"""->[TAG]` in favor of canonical `"""[TAG]` (scheduled for removal in 2.0.0)
+- Deprecated `"""->[TAG]` in favor of canonical `"""[TAG]` (scheduled for removal in 1.3.0)
 
 ## v1.1.0
 

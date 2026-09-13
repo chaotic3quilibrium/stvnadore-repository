@@ -1,9 +1,9 @@
 # STVN Architectural Specification: Schema Repository Server Overview
 
-**Document ID**: STVN-SPEC-REPO-01
-**Status**: Canonical Specification
-**Version**: 1.2.0-SNAPSHOT
-**Compliance**: Mandatory for all STVN ecosystem server implementations.
+- **Document ID**: STVN-SPEC-REPO-01
+- **Status**: Canonical Specification
+- **Version**: 1.2.0
+- **Compliance**: Mandatory for all STVN ecosystem server implementations.
 
 ---
 
@@ -31,6 +31,7 @@
     * [4. Retrieve Raw CAS Schema Payload](#4-retrieve-raw-cas-schema-payload)
     * [5. HTTP Error Mapping Taxonomy](#5-http-error-mapping-taxonomy)
   * [6. Background Projection Sweeper & Quarantine Pipeline](#6-background-projection-sweeper--quarantine-pipeline)
+    * [Forensic Quarantine Reason Taxonomy](#forensic-quarantine-reason-taxonomy)
 <!-- TOC -->
 
 ---
@@ -142,16 +143,16 @@ Raw schema sources are wrapped in a canonical STVN tuple envelope:
 ## 4. Relational Schema Catalog (PostgreSQL & H2)
 
 ### Table: version_catalog
-| Column          | Type         | Constraints               | Description                              |
-|:----------------|:-------------|:--------------------------|:-----------------------------------------|
+| Column            | Type         | Constraints               | Description                                |
+|:------------------|:-------------|:--------------------------|:-------------------------------------------|
 | `schema_name`     | VARCHAR(256) | PRIMARY KEY               | Nominal schema identifier (`*.stvn_inclf`) |
-| `shape_signature` | TEXT         | NOT NULL                  | Flattened AST structural shape signature |
-| `cas_hash`        | CHAR(64)     | NOT NULL, UNIQUE          | Cryptographic SHA-256 CAS address        |
-| `created_at`      | TIMESTAMP    | DEFAULT CURRENT_TIMESTAMP | Initial registration timestamp           |
+| `shape_signature` | TEXT         | NOT NULL                  | Flattened AST structural shape signature   |
+| `cas_hash`        | CHAR(64)     | NOT NULL, UNIQUE          | Cryptographic SHA-256 CAS address          |
+| `created_at`      | TIMESTAMP    | DEFAULT CURRENT_TIMESTAMP | Initial registration timestamp             |
 
 ### Table: schema_source_audit
-| Column       | Type         | Constraints               | Description                     |
-|:-------------|:-------------|:--------------------------|:--------------------------------|
+| Column         | Type         | Constraints               | Description                     |
+|:---------------|:-------------|:--------------------------|:--------------------------------|
 | `id`           | BIGSERIAL    | PRIMARY KEY               | Monotonic audit sequence number |
 | `schema_name`  | VARCHAR(256) | NOT NULL                  | Schema name (`*.stvn_inclf`)    |
 | `cas_hash`     | CHAR(64)     | NOT NULL                  | Content hash                    |
@@ -236,13 +237,13 @@ The `RelationalProjectionSweeper` executes every 60 seconds on a Java 21 Virtual
    `data/cas/.quarantine/<filename>.<timestamp>.<REASON>.quarantine`
 
 ### Forensic Quarantine Reason Taxonomy
-| Reason Tag | Verification Gate Trigger | Description |
-| :--- | :--- | :--- |
-| `EMPTY_PAYLOAD` | Storage I/O | CAS file exists but contains 0 bytes. |
-| `CORRUPT_ENVELOPE` | Outer Envelope | Outer envelope fails STVN parser or is not a valid 2-element tuple. |
-| `INVALID_FILENAME_EXTENSION` | Gate 1 Hygiene | Embedded schema filename does not end with `.stvn_inclf`. |
-| `MALFORMED_INNER_STRUCTURE` | Gate 2 Structure | Root document contains `:type` or `:body`, or lacks `:defs`. |
-| `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA` | Gate 2 Structure | Inner flat schema contains forbidden `:include` directive. |
-| `INVALID_INNER_AST` | Headless Compilation | Upstream STVN compiler reports syntax or type check errors. |
-| `FLATTENING_ERROR` | Flattener Pipeline | `StvnSchemaFlattener` fails to normalize definitions. |
-| `HASH_MISMATCH` | Cryptographic CAS | Recalculated SHA-256 shape hash does not match the 64-char filename hash. |
+| Reason Tag                        | Verification Gate Trigger | Description                                                               |
+|:----------------------------------|:--------------------------|:--------------------------------------------------------------------------|
+| `EMPTY_PAYLOAD`                   | Storage I/O               | CAS file exists but contains 0 bytes.                                     |
+| `CORRUPT_ENVELOPE`                | Outer Envelope            | Outer envelope fails STVN parser or is not a valid 2-element tuple.       |
+| `INVALID_FILENAME_EXTENSION`      | Gate 1 Hygiene            | Embedded schema filename does not end with `.stvn_inclf`.                 |
+| `MALFORMED_INNER_STRUCTURE`       | Gate 2 Structure          | Root document contains `:type` or `:body`, or lacks `:defs`.              |
+| `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA` | Gate 2 Structure          | Inner flat schema contains forbidden `:include` directive.                |
+| `INVALID_INNER_AST`               | Headless Compilation      | Upstream STVN compiler reports syntax or type check errors.               |
+| `FLATTENING_ERROR`                | Flattener Pipeline        | `StvnSchemaFlattener` fails to normalize definitions.                     |
+| `HASH_MISMATCH`                   | Cryptographic CAS         | Recalculated SHA-256 shape hash does not match the 64-char filename hash. |

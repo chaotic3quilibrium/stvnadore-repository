@@ -2,7 +2,7 @@
 
 **Document ID**: STVN-SPEC-REPO-02  
 **Status**: Canonical Specification  
-**Version**: 1.2.0-SNAPSHOT  
+**Version**: 1.2.0  
 **Compliance**: Mandatory for all STVN ecosystem server and repository implementations.  
 
 ---
@@ -37,7 +37,7 @@
 
 ## 1. Architectural Purpose & Scope
 
-This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.2.0-SNAPSHOT`.
+This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.2.0`.
 
 The server enforces three core perimeter invariants:
 1. **Double-Gate Textual Ingress Boundary:** Enforces filename hygiene (`.stvn_inclf`), AST structural invariants (strictly `:defs`, zero `:include`, zero `:type`, zero `:body`), and headless semantic compilation prior to CAS commitment.
