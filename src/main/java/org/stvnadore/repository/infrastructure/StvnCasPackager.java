@@ -57,4 +57,33 @@ public class StvnCasPackager {
         }
         return Optional.empty();
     }
+
+    /**
+     * Unpacks both schema filename and source text from an STVN CAS envelope document.
+     *
+     * @param envelopeText the envelope document text
+     * @return Optional containing record with schemaName and sourceText
+     */
+    public static Optional<EnvelopeContent> unpackEnvelope(String envelopeText) {
+        try {
+            Optional<StvnValue> compiled = StvnCompiler.compile(envelopeText);
+            if (compiled.isPresent() && compiled.get() instanceof StvnValue.StvnTuple tuple) {
+                if (tuple.elements().size() >= 2 &&
+                    tuple.elements().get(0) instanceof StvnValue.StvnString nameVal &&
+                    tuple.elements().get(1) instanceof StvnValue.StvnString sourceVal) {
+                    return Optional.of(new EnvelopeContent(nameVal.value(), sourceVal.value().trim()));
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Record holding unpacked envelope metadata.
+     *
+     * @param schemaName embedded schema filename
+     * @param sourceText embedded raw schema source text
+     */
+    public record EnvelopeContent(String schemaName, String sourceText) {}
 }

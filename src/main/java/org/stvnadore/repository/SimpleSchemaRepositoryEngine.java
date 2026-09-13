@@ -1,20 +1,23 @@
 package org.stvnadore.repository;
 
-import org.stvnadore.core.StvnAnalysisResult;
+import org.antlr.v4.runtime.CharStreams;
+import org.antlr.v4.runtime.CommonTokenStream;
+import org.stvnadore.core.StvnCompilationResult;
 import org.stvnadore.core.StvnCompiler;
-import org.stvnadore.core.StvnDiagnostic;
+import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnSchemaFlattener;
+import org.stvnadore.core.binary.StvnBinaryDecoder;
+import org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer;
 import org.stvnadore.core.binary.StvnSchemaHasher;
 import org.stvnadore.core.ir.StvnValue;
+import org.stvnadore.core.parser.StvnLexer;
+import org.stvnadore.core.parser.StvnParser;
 import org.stvnadore.core.validation.StvnTypeResolver.ResolvedSchema;
 import org.stvnadore.repository.domain.*;
 import org.stvnadore.repository.infrastructure.StvnCasPackager;
 import org.stvnadore.repository.ports.CasStoragePort;
 import org.stvnadore.repository.ports.IndexRepositoryPort;
 import org.stvnadore.repository.ports.VersionCatalogCache;
-
-import org.stvnadore.core.binary.StvnBinaryDecoder;
-import org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -73,47 +76,73 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             ));
         }
 
-        // 1. Parse and validate incoming raw include text
-        StvnAnalysisResult<Optional<StvnValue>, List<StvnDiagnostic>> analysis = StvnCompiler.analyze(sourceText);
-        if (!analysis.diagnostics().isEmpty()) {
-            List<CompileDiagnostic> compileDiagnostics = analysis.diagnostics().stream()
+        // Gate 1 (Filename Hygiene): Enforce that schema filename strictly ends with .stvn_inclf
+        if (!schemaName.endsWith(".stvn_inclf")) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema filename must strictly end with '.stvn_inclf': " + schemaName, 1, 1)
+            ));
+        }
+
+        // Gate 2 (AST Structure Invariant): Root context must contain strictly a :defs section
+        StvnLexer lexer = new StvnLexer(CharStreams.fromString(sourceText));
+        lexer.removeErrorListeners();
+        StvnParser parser = new StvnParser(new CommonTokenStream(lexer));
+        parser.removeErrorListeners();
+        var docCtx = parser.stvnDocument();
+
+        if (docCtx.documentBody() == null || docCtx.documentBody().defsEntry() == null) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema root must contain strictly a :defs section", 1, 1)
+            ));
+        }
+
+        if (docCtx.documentBody().typeEntry() != null) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level :type section is prohibited in flat schema document", 1, 1)
+            ));
+        }
+
+        if (docCtx.documentBody().bodyEntry() != null) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level :body section is prohibited in flat schema document", 1, 1)
+            ));
+        }
+
+        for (var element : docCtx.documentBody().defsEntry().defsElement()) {
+            if (element.includeStmt() != null) {
+                return new PublishResult.ValidationError(List.of(
+                    new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_inclf) cannot contain :include directives", 1, 1)
+                ));
+            }
+        }
+
+        // Headless Validation: Compile schema without requiring payload body
+        StvnCompilationResult<StvnValue> compileResult = StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT);
+        if (compileResult.hasErrors()) {
+            List<CompileDiagnostic> compileDiagnostics = compileResult.diagnostics().stream()
                 .map(d -> new CompileDiagnostic(d.message(), d.line(), d.column()))
                 .toList();
             return new PublishResult.ValidationError(compileDiagnostics);
         }
 
-        Optional<StvnValue> valueOpt = analysis.value();
-        if (valueOpt.isEmpty()) {
-            return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("Parsed STVN document has an empty body", 1, 1)
-            ));
-        }
-
-        StvnValue value = valueOpt.get();
-
-        // 2. Canonicalize AST representation
-        String canonicalSource = StvnCompiler.toCanonicalString(value);
-
-        // 3. Derive shape signature and CAS hash
+        // 2. Derive canonical structural shape signature via flattener
         String shapeSignature;
-        String entryPointPath = schemaName + ".stvn";
         try {
-            shapeSignature = StvnSchemaFlattener.flatten(Map.of(entryPointPath, canonicalSource), entryPointPath);
+            shapeSignature = StvnSchemaFlattener.flatten(Map.of(schemaName, sourceText), schemaName);
         } catch (Exception e) {
             return new PublishResult.ValidationError(List.of(
                 new CompileDiagnostic("Schema flattening failed: " + e.getMessage(), 1, 1)
             ));
         }
 
-        ResolvedSchema schema = value.schema();
+        // 3. Compute deterministic SHA-256 CAS address from the canonical flattened AST
         String casHash;
         try {
-            byte[] hashBytes = StvnSchemaHasher.computeSha256(schema);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashBytes = digest.digest(shapeSignature.getBytes(StandardCharsets.UTF_8));
             casHash = HexFormat.of().formatHex(hashBytes);
-        } catch (Exception e) {
-            return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("Schema hashing failed: " + e.getMessage(), 1, 1)
-            ));
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException("SHA-256 algorithm missing from environment", e);
         }
 
         SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash);
@@ -129,8 +158,8 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             }
         }
 
-        // 5. Package envelope using canonical source text
-        String envelopeText = StvnCasPackager.packageEnvelope(schemaName, casHash, canonicalSource);
+        // 5. Package envelope using source text
+        String envelopeText = StvnCasPackager.packageEnvelope(schemaName, casHash, sourceText);
         byte[] envelopeBytes = envelopeText.getBytes(StandardCharsets.UTF_8);
 
         // 6. Write to CAS Storage

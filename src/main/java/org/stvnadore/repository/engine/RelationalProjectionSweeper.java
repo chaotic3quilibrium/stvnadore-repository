@@ -1,14 +1,18 @@
 package org.stvnadore.repository.engine;
 
+import org.antlr.v4.runtime.CharStreams;
+import org.antlr.v4.runtime.CommonTokenStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.stvnadore.core.StvnAnalysisResult;
+import org.stvnadore.core.StvnCompilationResult;
 import org.stvnadore.core.StvnCompiler;
 import org.stvnadore.core.StvnDiagnostic;
+import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnSchemaFlattener;
-import org.stvnadore.core.binary.StvnSchemaHasher;
 import org.stvnadore.core.ir.StvnValue;
-import org.stvnadore.core.validation.StvnTypeResolver.ResolvedSchema;
+import org.stvnadore.core.parser.StvnLexer;
+import org.stvnadore.core.parser.StvnParser;
 import org.stvnadore.repository.domain.DuplicateIndexException;
 import org.stvnadore.repository.domain.SchemaMetadata;
 import org.stvnadore.repository.infrastructure.FileSystemCasStorage;
@@ -22,6 +26,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -129,17 +134,56 @@ public class RelationalProjectionSweeper implements Runnable {
                 String schemaName = nameVal.value();
                 String innerSourceText = sourceVal.value().trim();
 
-                StvnAnalysisResult<Optional<StvnValue>, List<StvnDiagnostic>> innerAnalysis = StvnCompiler.analyze(innerSourceText);
-                if (!innerAnalysis.diagnostics().isEmpty() || innerAnalysis.value().isEmpty()) {
+                // Gate 1 (Filename Hygiene): Embedded schema filename must strictly end with .stvn_inclf
+                if (!schemaName.endsWith(".stvn_inclf")) {
+                    logger.error("CAS schema filename does not end with .stvn_inclf: {}", schemaName);
+                    quarantine(casHash, "INVALID_FILENAME_EXTENSION");
+                    continue;
+                }
+
+                // Gate 2 (AST Structure Invariant): Root context must contain strictly a :defs section
+                StvnLexer innerLexer = new StvnLexer(CharStreams.fromString(innerSourceText));
+                innerLexer.removeErrorListeners();
+                StvnParser innerParser = new StvnParser(new CommonTokenStream(innerLexer));
+                innerParser.removeErrorListeners();
+                var innerDocCtx = innerParser.stvnDocument();
+
+                if (innerDocCtx.documentBody() == null || innerDocCtx.documentBody().defsEntry() == null ||
+                    innerDocCtx.documentBody().typeEntry() != null || innerDocCtx.documentBody().bodyEntry() != null) {
+                    logger.error("Inner schema violated AST structure invariant for {}: must contain strictly :defs", schemaName);
+                    quarantine(casHash, "MALFORMED_INNER_STRUCTURE");
+                    continue;
+                }
+
+                boolean hasIncludes = innerDocCtx.documentBody().defsEntry().defsElement().stream()
+                    .anyMatch(el -> el.includeStmt() != null);
+                if (hasIncludes) {
+                    logger.error("Inner schema contains illegal :include directive: {}", schemaName);
+                    quarantine(casHash, "ILLEGAL_INCLUDES_IN_FLAT_SCHEMA");
+                    continue;
+                }
+
+                // Headless Validation: Verify inner schema compiles cleanly without body
+                StvnCompilationResult<StvnValue> innerResult = StvnCompiler.compileToResult(innerSourceText, schemaName, StvnParserConfig.STRICT);
+                if (innerResult.hasErrors()) {
+                    logger.error("Inner schema compilation diagnostics detected for {}: {}", schemaName, innerResult.diagnostics());
                     quarantine(casHash, "INVALID_INNER_AST");
                     continue;
                 }
 
-                StvnValue innerVal = innerAnalysis.value().get();
-                ResolvedSchema schema = innerVal.schema();
+                // Derive structural shape signature (resolving :package enclosures and applying #strip)
+                String shapeSignature;
+                try {
+                    shapeSignature = StvnSchemaFlattener.flatten(Map.of(schemaName, innerSourceText), schemaName);
+                } catch (Exception e) {
+                    logger.error("Flattening failed for schema {}", schemaName, e);
+                    quarantine(casHash, "FLATTENING_ERROR");
+                    continue;
+                }
 
-                // Recalculate SHA-256 AST hash
-                byte[] calculatedHashBytes = StvnSchemaHasher.computeSha256(schema);
+                // Recalculate SHA-256 AST hash from canonical flattened shape signature
+                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                byte[] calculatedHashBytes = digest.digest(shapeSignature.getBytes(StandardCharsets.UTF_8));
                 String calculatedHash = HexFormat.of().formatHex(calculatedHashBytes);
 
                 if (!calculatedHash.equalsIgnoreCase(casHash)) {
@@ -148,10 +192,6 @@ public class RelationalProjectionSweeper implements Runnable {
                     quarantine(casHash, "HASH_MISMATCH");
                     continue;
                 }
-
-                // Derive structural shape signature
-                String entryPointPath = schemaName + ".stvn";
-                String shapeSignature = StvnSchemaFlattener.flatten(Map.of(entryPointPath, innerSourceText), entryPointPath);
 
                 // Save to relational catalog with original source text
                 SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash);

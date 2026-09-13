@@ -8,8 +8,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.stvnadore.core.StvnCompiler;
-import org.stvnadore.core.binary.StvnSchemaHasher;
+import org.stvnadore.core.StvnSchemaFlattener;
 import org.stvnadore.repository.SimpleSchemaRepositoryEngine;
 import org.stvnadore.repository.edge.SchemaPublishHandler;
 import org.stvnadore.repository.infrastructure.ConcurrentHashMapCache;
@@ -23,11 +22,14 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.util.Comparator;
 import java.util.HexFormat;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -97,16 +99,31 @@ public class EnumSubsetCasIntegrationTest {
     @Test
     @DisplayName("SUBSET-CAS-01: Inclusive and exclusive subsets produce divergent CAS addresses without collision")
     void testEnumSubsetCasAddressIsolation() throws Exception {
-        Path exclPath = Paths.get("target/test-classes/fixtures/valid-syntax/enum_subset_exclusive.stvn");
-        Path inclPath = Paths.get("target/test-classes/fixtures/valid-syntax/enum_subset_inclusive.stvn");
+        String exclSchemaName = "TestableEnv.stvn_inclf";
+        String inclSchemaName = "PreReleaseEnv.stvn_inclf";
 
-        String exclText = Files.readString(exclPath);
-        String inclText = Files.readString(inclPath);
+        String exclText = """
+            {
+              :defs {
+                :Environment :Enum [ #LOCAL #DEV #STAGING #CANARY #PROD ]
+                :TestableEnv { #filterExcl [ #PROD ] } :Environment
+              }
+            }
+            """;
+
+        String inclText = """
+            {
+              :defs {
+                :Environment :Enum [ #LOCAL #DEV #STAGING #CANARY #PROD ]
+                :PreReleaseEnv { #filterIncl [ #DEV #STAGING #CANARY ] } :Environment
+              }
+            }
+            """;
 
         // 1. Publish Exclusive Subset (:TestableEnv)
         HttpResponse<String> resp1 = httpClient.send(
             HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/TestableEnv"))
+                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + exclSchemaName))
                 .header("Content-Type", "application/stvn")
                 .POST(HttpRequest.BodyPublishers.ofString(exclText))
                 .build(),
@@ -117,7 +134,7 @@ public class EnumSubsetCasIntegrationTest {
         // 2. Publish Inclusive Subset (:PreReleaseEnv)
         HttpResponse<String> resp2 = httpClient.send(
             HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/PreReleaseEnv"))
+                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + inclSchemaName))
                 .header("Content-Type", "application/stvn")
                 .POST(HttpRequest.BodyPublishers.ofString(inclText))
                 .build(),
@@ -125,12 +142,12 @@ public class EnumSubsetCasIntegrationTest {
         );
         assertEquals(201, resp2.statusCode(), "Inclusive subset publication must return HTTP 201: " + resp2.body());
 
-        // 3. Compute expected AST hashes via StvnSchemaHasher
-        var schema1 = StvnCompiler.compile(exclText).orElseThrow().schema();
-        var schema2 = StvnCompiler.compile(inclText).orElseThrow().schema();
+        // 3. Compute expected AST hashes via StvnSchemaFlattener + SHA-256
+        String shape1 = StvnSchemaFlattener.flatten(Map.of(exclSchemaName, exclText), exclSchemaName);
+        String shape2 = StvnSchemaFlattener.flatten(Map.of(inclSchemaName, inclText), inclSchemaName);
 
-        String hash1 = HexFormat.of().formatHex(StvnSchemaHasher.computeSha256(schema1));
-        String hash2 = HexFormat.of().formatHex(StvnSchemaHasher.computeSha256(schema2));
+        String hash1 = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(shape1.getBytes(StandardCharsets.UTF_8)));
+        String hash2 = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(shape2.getBytes(StandardCharsets.UTF_8)));
 
         assertNotEquals(hash1, hash2, "Parent and sibling subsets must produce divergent CAS hashes");
 
@@ -140,7 +157,7 @@ public class EnumSubsetCasIntegrationTest {
 
         assertNotNull(read1, "CAS storage must contain exclusive subset envelope for hash: " + hash1);
         assertNotNull(read2, "CAS storage must contain inclusive subset envelope for hash: " + hash2);
-        assertNotEquals(new String(read1), new String(read2));
+        assertNotEquals(new String(read1, StandardCharsets.UTF_8), new String(read2, StandardCharsets.UTF_8));
 
         // 5. Verify raw retrieval endpoint GET /api/v1/schemas/cas/{hash}
         HttpResponse<String> rawResp1 = httpClient.send(
@@ -159,23 +176,30 @@ public class EnumSubsetCasIntegrationTest {
     @Test
     @DisplayName("SUBSET-CAS-02: Root enum and subset schema produce divergent CAS hashes preventing overwrite")
     void testRootEnumVsSubsetDivergence() throws Exception {
+        String rootSchemaName = "EnvironmentRoot.stvn_inclf";
+        String subsetSchemaName = "PreReleaseEnv.stvn_inclf";
+
         String rootEnumText = """
             {
               :defs {
                 :Environment :Enum [ #LOCAL #DEV #STAGING #CANARY #PROD ]
               }
-              :type :Environment
-              :body #LOCAL
             }
             """;
 
-        Path inclPath = Paths.get("target/test-classes/fixtures/valid-syntax/enum_subset_inclusive.stvn");
-        String inclText = Files.readString(inclPath);
+        String subsetText = """
+            {
+              :defs {
+                :Environment :Enum [ #LOCAL #DEV #STAGING #CANARY #PROD ]
+                :PreReleaseEnv { #filterIncl [ #DEV #STAGING #CANARY ] } :Environment
+              }
+            }
+            """;
 
         // Publish root enum
         HttpResponse<String> rootResp = httpClient.send(
             HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/EnvironmentRoot"))
+                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + rootSchemaName))
                 .header("Content-Type", "application/stvn")
                 .POST(HttpRequest.BodyPublishers.ofString(rootEnumText))
                 .build(),
@@ -184,11 +208,11 @@ public class EnumSubsetCasIntegrationTest {
         assertEquals(201, rootResp.statusCode());
 
         // Verify root schema hash != subset schema hash
-        var rootSchema = StvnCompiler.compile(rootEnumText).orElseThrow().schema();
-        var subsetSchema = StvnCompiler.compile(inclText).orElseThrow().schema();
+        String rootShape = StvnSchemaFlattener.flatten(Map.of(rootSchemaName, rootEnumText), rootSchemaName);
+        String subsetShape = StvnSchemaFlattener.flatten(Map.of(subsetSchemaName, subsetText), subsetSchemaName);
 
-        String rootHash = HexFormat.of().formatHex(StvnSchemaHasher.computeSha256(rootSchema));
-        String subsetHash = HexFormat.of().formatHex(StvnSchemaHasher.computeSha256(subsetSchema));
+        String rootHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(rootShape.getBytes(StandardCharsets.UTF_8)));
+        String subsetHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(subsetShape.getBytes(StandardCharsets.UTF_8)));
 
         assertNotEquals(rootHash, subsetHash, "Root enum and subset must have distinct cryptographic digests");
     }
@@ -196,12 +220,36 @@ public class EnumSubsetCasIntegrationTest {
     @Test
     @DisplayName("SUBSET-CAS-03: Transitive enum subset chain computes unique CAS fingerprint and stores cleanly")
     void testTransitiveChainCasPersistence() throws Exception {
-        Path chainPath = Paths.get("target/test-classes/fixtures/valid-syntax/enum_subset_transitive_chain.stvn");
-        String chainText = Files.readString(chainPath);
+        String chainSchemaName = "ExecutionStatusChain.stvn_inclf";
+        String chainText = """
+            {
+              :defs {
+                :TaskStatus :Enum [
+                  #BACKLOG
+                  #TODO
+                  #IN_PROGRESS
+                  #CODE_REVIEW
+                  #TESTING
+                  #DONE
+                  #BLOCKED
+                  #CANCELLED
+                ]
+
+                // Tier 1: Exclude terminal states (8 - 3 = 5 variants remain)
+                :ActiveStatus { #filterExcl [ #BACKLOG #DONE #CANCELLED ] } :TaskStatus
+
+                // Tier 2: Select workable states from Tier 1 (5 -> 4 variants remain)
+                :WorkableStatus { #filterIncl [ #TODO #IN_PROGRESS #CODE_REVIEW #TESTING ] } :ActiveStatus
+
+                // Tier 3: Exclude verification states from Tier 2 (4 - 2 = 2 variants remain)
+                :ExecutionStatus { #filterExcl [ #CODE_REVIEW #TESTING ] } :WorkableStatus
+              }
+            }
+            """;
 
         HttpResponse<String> resp = httpClient.send(
             HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/ExecutionStatusChain"))
+                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + chainSchemaName))
                 .header("Content-Type", "application/stvn")
                 .POST(HttpRequest.BodyPublishers.ofString(chainText))
                 .build(),
@@ -209,11 +257,11 @@ public class EnumSubsetCasIntegrationTest {
         );
         assertEquals(201, resp.statusCode());
 
-        var chainSchema = StvnCompiler.compile(chainText).orElseThrow().schema();
-        String chainHash = HexFormat.of().formatHex(StvnSchemaHasher.computeSha256(chainSchema));
+        String chainShape = StvnSchemaFlattener.flatten(Map.of(chainSchemaName, chainText), chainSchemaName);
+        String chainHash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(chainShape.getBytes(StandardCharsets.UTF_8)));
 
         byte[] envelope = casStorage.read(chainHash);
         assertNotNull(envelope, "Transitive chain envelope must be present in CAS storage");
-        assertTrue(new String(envelope).contains("ExecutionStatusChain"));
+        assertTrue(new String(envelope, StandardCharsets.UTF_8).contains("ExecutionStatusChain.stvn_inclf"));
     }
 }

@@ -2,7 +2,7 @@
 
 **Document ID**: STVN-SPEC-REPO-02  
 **Status**: Canonical Specification  
-**Version**: 1.1.0  
+**Version**: 1.2.0-SNAPSHOT  
 **Compliance**: Mandatory for all STVN ecosystem server and repository implementations.  
 
 ---
@@ -13,37 +13,64 @@
 * [STVN Architectural Specification: Zero-Trust Ingress Verification, Byte 4 Wire Governance, and Enum Subset CAS Invariants](#stvn-architectural-specification-zero-trust-ingress-verification-byte-4-wire-governance-and-enum-subset-cas-invariants)
 * [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
   * [1. Architectural Purpose & Scope](#1-architectural-purpose--scope)
-  * [2. Zero-Trust Ingress Verification & Byte 4 Wire Governance](#2-zero-trust-ingress-verification--byte-4-wire-governance)
-    * [2.1 Wire Framing Specification](#21-wire-framing-specification)
-    * [2.2 Byte 4 Control Byte Bitfield Layout](#22-byte-4-control-byte-bitfield-layout)
+  * [2. Double-Gate Ingress Boundary for Flat Schemas (.stvn_inclf)](#2-double-gate-ingress-boundary-for-flat-schemas-stvn_inclf)
+    * [2.1 Gate 1: Filename Hygiene](#21-gate-1-filename-hygiene)
+    * [2.2 Gate 2: AST Structure Invariants](#22-gate-2-ast-structure-invariants)
+    * [2.3 Headless Compilation & Canonical Flattening](#23-headless-compilation--canonical-flattening)
+  * [3. Zero-Trust Ingress Verification & Byte 4 Wire Governance](#3-zero-trust-ingress-verification--byte-4-wire-governance)
+    * [3.1 Wire Framing Specification](#31-wire-framing-specification)
+    * [3.2 Byte 4 Control Byte Bitfield Layout](#32-byte-4-control-byte-bitfield-layout)
       * [1. Trailer Flag (Bit 7, Mask `0x80`): `HAS_TRAILER_CRC32C`](#1-trailer-flag-bit-7-mask-0x80-has_trailer_crc32c)
       * [2. Wire Strategy (Bits 6..4, Mask `0x70`): `BinaryEncodingStrategy`](#2-wire-strategy-bits-64-mask-0x70-binaryencodingstrategy)
       * [3. Schema Identity Strategy (Bits 3..0, Mask `0x0F`): `SchemaIdentityStrategy`](#3-schema-identity-strategy-bits-30-mask-0x0f-schemaidentitystrategy)
-    * [2.3 Hardware-Accelerated CRC-32C Validation Algorithm](#23-hardware-accelerated-crc-32c-validation-algorithm)
-  * [3. Enum Subset CAS Hashing Invariants & Non-Collision Guarantees](#3-enum-subset-cas-hashing-invariants--non-collision-guarantees)
-    * [3.1 Mathematical Model & Non-Collision Property](#31-mathematical-model--non-collision-property)
-    * [3.2 Invariants Enforced](#32-invariants-enforced)
-  * [4. REST Ingress Boundary & Dual-Mode Routing](#4-rest-ingress-boundary--dual-mode-routing)
-    * [4.1 Endpoint Signatures](#41-endpoint-signatures)
-  * [5. HTTP Error Mapping Taxonomy Matrix](#5-http-error-mapping-taxonomy-matrix)
-  * [6. Concurrency & Background Sweeper Invariants](#6-concurrency--background-sweeper-invariants)
+    * [3.3 Hardware-Accelerated CRC-32C Validation Algorithm](#33-hardware-accelerated-crc-32c-validation-algorithm)
+  * [4. Enum Subset CAS Hashing Invariants & Non-Collision Guarantees](#4-enum-subset-cas-hashing-invariants--non-collision-guarantees)
+    * [4.1 Mathematical Model & Non-Collision Property](#41-mathematical-model--non-collision-property)
+    * [4.2 Invariants Enforced](#42-invariants-enforced)
+  * [5. REST Ingress Boundary & Dual-Mode Routing](#5-rest-ingress-boundary--dual-mode-routing)
+    * [5.1 Endpoint Signatures](#51-endpoint-signatures)
+  * [6. HTTP Error Mapping Taxonomy Matrix](#6-http-error-mapping-taxonomy-matrix)
+  * [7. Concurrency & Background Sweeper Invariants](#7-concurrency--background-sweeper-invariants)
 <!-- TOC -->
 
 ---
 
 ## 1. Architectural Purpose & Scope
 
-This document specifies the ingress boundary security invariants and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.1.1`.
+This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.2.0-SNAPSHOT`.
 
-The server enforces two core design invariants:
-1. **Zero-Trust Binary Ingress Boundary:** Corrupted frames, tampered checksums, truncated buffers, and unauthorized strategy extensions are intercepted at the network edge and rejected prior to disk persistence.
-2. **Enum Subset Cryptographic Isolation:** Nominal enum subsets (`#filterIncl`, `#filterExcl`) derive distinct SHA-256 CAS addresses, preventing storage overwrites and catalog collisions.
+The server enforces three core perimeter invariants:
+1. **Double-Gate Textual Ingress Boundary:** Enforces filename hygiene (`.stvn_inclf`), AST structural invariants (strictly `:defs`, zero `:include`, zero `:type`, zero `:body`), and headless semantic compilation prior to CAS commitment.
+2. **Zero-Trust Binary Ingress Boundary:** Corrupted frames, tampered checksums, truncated buffers, and unauthorized strategy extensions are intercepted at the network edge and rejected prior to disk persistence.
+3. **Enum Subset Cryptographic Isolation:** Nominal enum subsets (`#filterIncl`, `#filterExcl`) derive distinct SHA-256 CAS addresses from canonical flattened shape signatures, preventing storage overwrites and catalog collisions.
 
 ---
 
-## 2. Zero-Trust Ingress Verification & Byte 4 Wire Governance
+## 2. Double-Gate Ingress Boundary for Flat Schemas (.stvn_inclf)
 
-### 2.1 Wire Framing Specification
+### 2.1 Gate 1: Filename Hygiene
+Every text schema submitted to `/api/v1/schemas/{name}` must carry the `.stvn_inclf` extension:
+* The engine asserts `schemaName.endsWith(".stvn_inclf")`.
+* Filenames violating this rule are rejected immediately with HTTP 422 (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+
+### 2.2 Gate 2: AST Structure Invariants
+Flat schema leaf modules stored in CAS must maintain strict structural cleanliness:
+1. The root document context must contain strictly a `:defs` section.
+2. Top-level `:type` sections are prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+3. Top-level `:body` sections are prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+4. Embedded `:include` directives are strictly prohibited in flat schemas (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
+
+### 2.3 Headless Compilation & Canonical Flattening
+* **Headless Validation:** Schemas are compiled via `StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT)` without requiring a document body.
+* **Canonical Flattening:** `StvnSchemaFlattener.flatten(Map.of(schemaName, sourceText), schemaName)` unpacks `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), applies unary `#strip`, and canonicalizes definitions.
+* **Deterministic CAS Addressing:** The 64-character CAS hash is computed by applying SHA-256 to the UTF-8 bytes of the flattened shape signature:
+  $$\text{CAS Hash} = \text{SHA-256}(\text{shapeSignature.getBytes(StandardCharsets.UTF\_8)})$$
+
+---
+
+## 3. Zero-Trust Ingress Verification & Byte 4 Wire Governance
+
+### 3.1 Wire Framing Specification
 Every incoming `.stvn_bin` binary frame follows a strict binary layout:
 
 ```
@@ -53,7 +80,7 @@ Every incoming `.stvn_bin` binary frame follows a strict binary layout:
 +-------------------+---------------+-----------------------+---------------+--------------------+--------------------+
 ```
 
-### 2.2 Byte 4 Control Byte Bitfield Layout
+### 3.2 Byte 4 Control Byte Bitfield Layout
 Byte 4 governs stream decoding and integrity verification:
 
 ```
@@ -79,7 +106,7 @@ Bit 7           Bit 6   Bit 5   Bit 4   Bit 3   Bit 2   Bit 1   Bit 0
 * Code `0x1`: `ExplicitSha256`
 * Code `0x2`: `SelfDescribingSchema`
 
-### 2.3 Hardware-Accelerated CRC-32C Validation Algorithm
+### 3.3 Hardware-Accelerated CRC-32C Validation Algorithm
 The server executes the integrity verification algorithm within `SchemaPublishHandler`:
 
 ```java
@@ -126,41 +153,32 @@ if (hasTrailer) {
 
 ---
 
-## 3. Enum Subset CAS Hashing Invariants & Non-Collision Guarantees
+## 4. Enum Subset CAS Hashing Invariants & Non-Collision Guarantees
 
-### 3.1 Mathematical Model & Non-Collision Property
-In STVN Specification §8 and v1.1.1, an enum subset derives a constrained variant view from a parent enum definition.
+### 4.1 Mathematical Model & Non-Collision Property
+In STVN Specification §8 and v1.2.0, an enum subset derives a constrained variant view from a parent enum definition.
 
-`StvnSchemaHasher` digests all subset attributes in strict sequential order:
+`StvnSchemaFlattener` flattens definitions into canonical AST shape signatures, and the CAS address is derived via:
+$$\text{CAS Hash} = \text{SHA-256}(\text{shapeSignature.getBytes(StandardCharsets.UTF\_8)})$$
 
-```
-Digest = SHA-256(
-    "subsetName:" + subset.name() ||
-    "subsetParent:" + subset.parentType() ||
-    "subsetRoot:" + subset.rootEnum() ||
-    "subsetFilterType:" + (subset.isInclusive() ? "incl" : "excl") ||
-    ("subsetVariant:" + variant_i)*
-)
-```
-
-Because the subset nominal name, parent reference, root reference, filter mode, and sorted allowed variants feed into the SHA-256 digest:
+Because the subset nominal name, parent reference, filter mode, and variant list feed into the canonical shape signature:
 $$\text{CAS}(:\text{Status}) \ne \text{CAS}(:\text{ActiveStatus}) \ne \text{CAS}(:\text{NonDeleted})$$
 
-### 3.2 Invariants Enforced
+### 4.2 Invariants Enforced
 1. **Root-Subset Isolation:** A root enum and any derived subset produce divergent CAS addresses.
 2. **Sibling Isolation:** Sibling subsets with different variant selections produce divergent CAS addresses.
-3. **Transitive Lineage Isolation:** In transitive chains (`:ExecutionStatus` $\to$ `:WorkableStatus` $\to$ `:ActiveStatus` $\to$ `:TaskStatus`), each level reflects parent and root links, producing unique addresses at each tier.
+3. **Transitive Lineage Isolation:** In transitive chains (`:ExecutionStatus` $\to$ `:WorkableStatus` $\to$ `:ActiveStatus` $\to$ `:TaskStatus`), each tier produces a unique canonical shape and distinct CAS address.
 4. **Storage Invariant:** Distinct addresses map to distinct files under the `2/62` filesystem CAS layout (`<prefix_2>/<suffix_62>.stvn_cas`), preventing file overwrite.
 
 ---
 
-## 4. REST Ingress Boundary & Dual-Mode Routing
+## 5. REST Ingress Boundary & Dual-Mode Routing
 
-### 4.1 Endpoint Signatures
+### 5.1 Endpoint Signatures
 
 | Route Path                            | HTTP Method | Supported Content-Type                               | Pipeline Executed                                              |
 |:--------------------------------------|:-----------:|:-----------------------------------------------------|:---------------------------------------------------------------|
-| `/api/v1/schemas/{name}`              |   `POST`    | `application/stvn`                                   | Textual compilation via `StvnCompiler.analyze()`.              |
+| `/api/v1/schemas/{name}`              |   `POST`    | `application/stvn`                                   | Double-Gate ingress verification, headless compile & flatten.  |
 | `/api/v1/schemas/{name}`              |   `POST`    | `application/stvn-bin`<br>`application/octet-stream` | Zero-trust binary verification via `StvnBinaryDecoder.open()`. |
 | `/api/v1/artifacts/binary/{name}`     |   `POST`    | Any binary stream                                    | Direct binary verification via `StvnBinaryDecoder.open()`.     |
 | `/api/v1/schemas/{name}/shapes/{sig}` |    `GET`    | N/A                                                  | Queries catalog metadata by nominal name and shape signature.  |
@@ -168,7 +186,7 @@ $$\text{CAS}(:\text{Status}) \ne \text{CAS}(:\text{ActiveStatus}) \ne \text{CAS}
 
 ---
 
-## 5. HTTP Error Mapping Taxonomy Matrix
+## 6. HTTP Error Mapping Taxonomy Matrix
 
 The server maps boundary and compilation events to HTTP status codes:
 
@@ -178,15 +196,17 @@ The server maps boundary and compilation events to HTTP status codes:
 | `404`       | Not Found              | Schema shape signature or CAS file hash does not exist.                                                        | Query miss                                                                               | Empty body                                                                              |
 | `409`       | Conflict               | Schema name exists with a different cryptographic hash. Mutations are prohibited.                              | `PublishResult.SchemaConflict`                                                           | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`               |
 | `415`       | Unsupported Media Type | Request `Content-Type` is null or not supported.                                                               | Media type guard                                                                         | `{"error": "Unsupported Media Type", "message": "..."}`                                 |
-| `422`       | Unprocessable Entity   | AST compiler diagnostics, CRC-32C trailer mismatch, buffer under 9 bytes, or strategy sentinel `0x7` detected. | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
+| `422`       | Unprocessable Entity   | Gate 1/2 violation, compiler error, CRC-32C mismatch, buffer < 9 bytes, or strategy sentinel `0x7`.             | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
 | `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                      | `PublishResult.IdempotentCollision`                                                      | `SchemaMetadata` JSON object                                                            |
 | `201`       | Created                | New schema verified, persisted to CAS, and cataloged.                                                          | `PublishResult.Success`                                                                  | `SchemaMetadata` JSON object                                                            |
 | `202`       | Accepted               | CAS write succeeded; catalog indexing deferred to background sweeper.                                          | `PublishResult.IndexingDeferred`                                                         | `SchemaMetadata` JSON object                                                            |
 
 ---
 
-## 6. Concurrency & Background Sweeper Invariants
+## 7. Concurrency & Background Sweeper Invariants
 
 1. **Virtual Thread Execution:** Every HTTP request executes on an unpinned Java 21 Virtual Thread. Calculations for `CRC32C` and `MessageDigest` allocate state on the stack, preventing thread pinning.
-2. **Zero-Trust Disk Isolation:** A payload that fails CRC-32C validation or carries strategy `0x7` never touches the filesystem. The handler rejects the request before invoking `FileSystemCasStorage`.
-3. **Relational Sweeper Quarantine:** If a physical file in the CAS root directory suffers bit corruption, the `RelationalProjectionSweeper` detects the hash mismatch and renames the file to `data/cas/.quarantine/<filename>.<timestamp>.HASH_MISMATCH.quarantine`.
+2. **Zero-Trust Disk Isolation:** A payload that fails CRC-32C validation, carries strategy `0x7`, or violates Gate 1 or Gate 2 never touches the filesystem. The handler rejects the request before invoking `FileSystemCasStorage`.
+3. **Relational Sweeper Quarantine:** If a physical file in the CAS directory suffers bit corruption, invalid filenames, or illegal includes, the `RelationalProjectionSweeper` atomically relocates it to:
+   `data/cas/.quarantine/<filename>.<timestamp>.<REASON>.quarantine`
+   Supported reasons include: `EMPTY_PAYLOAD`, `CORRUPT_ENVELOPE`, `INVALID_FILENAME_EXTENSION`, `MALFORMED_INNER_STRUCTURE`, `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA`, `INVALID_INNER_AST`, `FLATTENING_ERROR`, and `HASH_MISMATCH`.
