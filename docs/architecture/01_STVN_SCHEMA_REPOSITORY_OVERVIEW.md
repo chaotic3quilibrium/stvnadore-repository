@@ -2,7 +2,7 @@
 
 - **Document ID**: STVN-SPEC-REPO-01
 - **Status**: Canonical Specification
-- **Version**: 1.3.0-SNAPSHOT
+- **Version**: 1.3.0
 - **Compliance**: Mandatory for all STVN ecosystem server implementations.
 
 ---

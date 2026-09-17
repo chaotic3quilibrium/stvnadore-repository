@@ -1,9 +1,9 @@
 # STVN Architectural Specification: Zero-Trust Ingress Verification, Byte 4 Wire Governance, and Enum Subset CAS Invariants
 
-**Document ID**: STVN-SPEC-REPO-02  
-**Status**: Canonical Specification  
-**Version**: 1.3.0-SNAPSHOT  
-**Compliance**: Mandatory for all STVN ecosystem server and repository implementations.  
+- **Document ID**: STVN-SPEC-REPO-02  
+- **Status**: Canonical Specification  
+- **Version**: 1.3.0  
+- **Compliance**: Mandatory for all STVN ecosystem server and repository implementations.  
 
 ---
 
@@ -38,7 +38,7 @@
 
 ## 1. Architectural Purpose & Scope
 
-This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.3.0-SNAPSHOT`.
+This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.3.0`.
 
 The server enforces four core perimeter invariants:
 1. **Perimeter Payload Capacity Bound:** Enforces strict 16 MiB limits (`DEFAULT_UNBOUNDED_STRING_CAPACITY`) on both text schemas and binary streams before parsing.

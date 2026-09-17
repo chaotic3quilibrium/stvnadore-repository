@@ -1,6 +1,6 @@
 # STVN Schema Repository Server (`stvnadore-repository`)
 
-[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.3.0--SNAPSHOT-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
+[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.3.0-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
 [![Java 21 LTS](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Javalin Framework](https://img.shields.io/badge/Javalin-6.3.0-purple.svg)](https://javalin.io/)
 [![Storage Topology](https://img.shields.io/badge/Storage-2%2F62%20CAS%20Sharding-orange.svg)]()
@@ -10,7 +10,7 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
 
 ---
 
-- Version: 1.3.0-SNAPSHOT - 2026.09.16
+- Version: 1.3.0 - 2026.09.17
 
 ---
 
@@ -52,7 +52,7 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
     * [FYI, I'd prefer to move stvnadore-core to an Apache 2.0 license](#fyi-id-prefer-to-move-stvnadore-core-to-an-apache-20-license)
     * [I'm not looking to win the lottery, I just don't want to work for free](#im-not-looking-to-win-the-lottery-i-just-dont-want-to-work-for-free)
 * [Version History](#version-history)
-  * [v1.3.0-SNAPSHOT](#v130-snapshot)
+  * [v1.3.0](#v130)
   * [v1.2.0](#v120)
   * [v1.1.1](#v111)
   * [v1.1.0](#v110)
@@ -74,10 +74,10 @@ The STVN Schema Repository separates content storage from relational query index
 
 ```mermaid
 flowchart TD
-    Client["Client / IDE Plugin"] -->|"POST /api/v1/schemas/{name}\nPOST /api/v1/artifacts/binary/{name}"| Handler["SchemaPublishHandler\n(Virtual Threads)"]
-    Handler -->|Inspect Content-Type| Router{Payload Type?}
+    Client["Client / IDE Plugin"] -->|" POST /api/v1/schemas/{name}\nPOST /api/v1/artifacts/binary/{name} "| Handler["SchemaPublishHandler\n(Virtual Threads)"]
+    Handler -->|Inspect Content - Type| Router{Payload Type?}
     Router -->|Textual: application/stvn| Compiler["StvnCompiler.analyze()"]
-    Router -->|Binary: application/stvn-bin| Decoder["StvnBinaryDecoder.open()\n(CRC-32C + Strategy 0x7 Check)"]
+    Router -->|Binary: application/stvn - bin| Decoder["StvnBinaryDecoder.open()\n(CRC-32C + Strategy 0x7 Check)"]
     Decoder -->|Corrupt CRC / Strategy 0x7| Reject["Reject: HTTP 422\n(Zero Disk Persistence)"]
     Decoder -->|Valid Binary| Hasher["StvnSchemaHasher\n(SHA-256 AST Digest)"]
     Compiler -->|Diagnostics Error| RejectDiag["Reject: HTTP 422"]
@@ -88,7 +88,7 @@ flowchart TD
     Check -->|New Hash| Persist["Write Envelope to CAS\n(2/62 Sharding: aa/bb...stvn_cas)"]
     Persist -->|Index Metadata| DB[(PostgreSQL / H2\nversion_catalog)]
     DB --> Complete["HTTP 201 Created"]
-    
+
     subgraph Background ["Background Virtual Thread"]
         Sweeper["RelationalProjectionSweeper"] -->|Scan Files| CAS["FileSystemCasStorage"]
         Sweeper -->|Recompute Hashes| Hasher
@@ -102,14 +102,17 @@ flowchart TD
 ## REST API Specification
 
 ### Media Type Standard
+
 Schema payload bodies must use the MIME Content-Type: `application/stvn` (for textual schemas) or `application/stvn-bin` / `application/octet-stream` (for binary schemas).
 
 ---
 
 ### 1. Publish Schema (Dual-Mode Text or Binary)
+
 Stores and indexes a canonical STVN schema. Mutations to an existing schema name with a different cryptographic hash produce an `HTTP 409 Conflict`.
 
 The endpoint supports dual-mode content negotiation:
+
 * When `Content-Type: application/stvn` is supplied, the handler parses the request body as textual STVN source code.
 * When `Content-Type: application/stvn-bin` or `application/octet-stream` is supplied, the handler invokes the zero-trust binary verification pipeline.
 
@@ -119,6 +122,7 @@ The endpoint supports dual-mode content negotiation:
 * **Request Body**: Raw STVN schema source text OR compiled binary stream (`.stvn_bin`).
 
 #### Response Status Codes:
+
 * `201 Created`: Schema successfully published and indexed.
 * `200 OK`: Idempotent publication (exact schema name and hash already exist).
 * `202 Accepted`: CAS write succeeded; relational indexing deferred to background sweeper.
@@ -128,6 +132,7 @@ The endpoint supports dual-mode content negotiation:
 * `422 Unprocessable Entity`: STVN compilation diagnostics reported syntax/semantic errors, buffer size is under 9 bytes with CRC trailer enabled, CRC-32C checksum mismatch detected, or reserved strategy sentinel `0x7` detected.
 
 #### Example Request:
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/schemas/UserProfile \
   -H "Content-Type: application/stvn" \
@@ -135,6 +140,7 @@ curl -X POST http://localhost:8080/api/v1/schemas/UserProfile \
 ```
 
 #### Example 201 Response Body:
+
 ```json
 {
   "schemaName": "UserProfile",
@@ -146,6 +152,7 @@ curl -X POST http://localhost:8080/api/v1/schemas/UserProfile \
 ---
 
 ### 2. Publish Binary Artifact (Dedicated Route)
+
 Directly ingests and verifies compiled STVN binary payloads (`.stvn_bin`). The route enforces zero-trust ingress stream verification prior to writing any data to CAS storage.
 
 * **Method**: `POST`
@@ -154,6 +161,7 @@ Directly ingests and verifies compiled STVN binary payloads (`.stvn_bin`). The r
 * **Request Body**: Raw binary stream containing the 4-byte `"STVN"` magic header, Byte 4 control byte, payload body, and optional Little-Endian CRC-32C trailer.
 
 #### Response Status Codes:
+
 * `201 Created`: Binary payload verified and stored in CAS.
 * `200 OK`: Idempotent publication (exact binary hash already registered).
 * `400 Bad Request`: Binary payload is empty (`0 bytes`) or magic header is corrupt.
@@ -161,6 +169,7 @@ Directly ingests and verifies compiled STVN binary payloads (`.stvn_bin`). The r
 * `422 Unprocessable Entity`: CRC-32C trailer verification failed, payload truncated below 9 bytes, or reserved strategy sentinel `0x7` detected.
 
 #### Example Request:
+
 ```bash
 curl -X POST http://localhost:8080/api/v1/artifacts/binary/UserProfileBinary \
   -H "Content-Type: application/stvn-bin" \
@@ -170,6 +179,7 @@ curl -X POST http://localhost:8080/api/v1/artifacts/binary/UserProfileBinary \
 ---
 
 ### 3. Lookup Schema by Shape Signature
+
 Queries metadata for a schema matching a specific nominal name and flattened structural shape signature.
 
 * **Method**: `GET`
@@ -179,6 +189,7 @@ Queries metadata for a schema matching a specific nominal name and flattened str
   * `404 Not Found`: No matching schema name and shape signature found.
 
 #### Example Request:
+
 ```bash
 curl -X GET "http://localhost:8080/api/v1/schemas/UserProfile/shapes/%3ATuple(%20%3AInt64%20%3AStringNonEmpty%20)"
 ```
@@ -186,6 +197,7 @@ curl -X GET "http://localhost:8080/api/v1/schemas/UserProfile/shapes/%3ATuple(%2
 ---
 
 ### 4. Retrieve Raw CAS Payload by Hash
+
 Fetches the immutable, raw STVN schema content directly by its 64-character SHA-256 CAS hash.
 
 * **Method**: `GET`
@@ -196,6 +208,7 @@ Fetches the immutable, raw STVN schema content directly by its 64-character SHA-
   * `404 Not Found`: Hash does not exist in CAS storage.
 
 #### Example Request:
+
 ```bash
 curl -X GET http://localhost:8080/api/v1/schemas/cas/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 ```
@@ -203,24 +216,26 @@ curl -X GET http://localhost:8080/api/v1/schemas/cas/e3b0c44298fc1c149afbf4c8996
 ---
 
 ### 5. HTTP Error Mapping Taxonomy
+
 The repository uses explicit HTTP status codes to distinguish client transport errors, framing violations, and semantic failures:
 
-| Status Code | Status Name            | Trigger Condition                                                                                                                    | Source Exception                                                                                     | Response Structure                                                                        |
-|:------------|:-----------------------|:-------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------|:------------------------------------------------------------------------------------------|
-| `400`       | Bad Request            | Empty payload body, invalid magic header (`!= "STVN"`), or invalid CAS hash string length (`!= 64 hex chars`).                       | `IllegalArgumentException`                                                                           | `{"error": "Bad Request", "message": "..."}`                                              |
-| `404`       | Not Found              | Schema shape signature not found in catalog, or CAS file missing on disk.                                                            | `Optional.empty()`                                                                                   | Empty body                                                                                |
-| `409`       | Conflict               | Schema name already registered with a different cryptographic hash. Mutations are prohibited.                                        | `PublishResult.SchemaConflict`                                                                       | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`                 |
-| `415`       | Unsupported Media Type | Missing `Content-Type` header or header value not recognized (`!= application/stvn` or `application/stvn-bin`).                      | Content type guard                                                                                   | `{"error": "Unsupported Media Type", "message": "..."}`                                   |
+| Status Code | Status Name            | Trigger Condition                                                                                                                                                                                                                                | Source Exception                                                                                     | Response Structure                                                                        |
+|:------------|:-----------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------------------|:------------------------------------------------------------------------------------------|
+| `400`       | Bad Request            | Empty payload body, invalid magic header (`!= "STVN"`), or invalid CAS hash string length (`!= 64 hex chars`).                                                                                                                                   | `IllegalArgumentException`                                                                           | `{"error": "Bad Request", "message": "..."}`                                              |
+| `404`       | Not Found              | Schema shape signature not found in catalog, or CAS file missing on disk.                                                                                                                                                                        | `Optional.empty()`                                                                                   | Empty body                                                                                |
+| `409`       | Conflict               | Schema name already registered with a different cryptographic hash. Mutations are prohibited.                                                                                                                                                    | `PublishResult.SchemaConflict`                                                                       | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`                 |
+| `415`       | Unsupported Media Type | Missing `Content-Type` header or header value not recognized (`!= application/stvn` or `application/stvn-bin`).                                                                                                                                  | Content type guard                                                                                   | `{"error": "Unsupported Media Type", "message": "..."}`                                   |
 | `422`       | Unprocessable Entity   | Tab character violation (`ERR_TAB_CHARACTER_FORBIDDEN`), capacity bound overflow (`ERR_CAPACITY_OVERFLOW`), AST compiler diagnostics, CRC-32C trailer mismatch, stream size under 9 bytes with CRC enabled, or strategy sentinel `0x7` detected. | `PublishResult.ValidationError`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` objects or `{"error": "Malformed Payload", "message": "..."}` |
-| `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                                            | `PublishResult.IdempotentCollision`                                                                  | `SchemaMetadata` JSON object                                                              |
-| `201`       | Created                | Schema validated, persisted to CAS storage, and cataloged.                                                                           | `PublishResult.Success`                                                                              | `SchemaMetadata` JSON object                                                              |
-| `202`       | Accepted               | CAS write succeeded; relational database indexing deferred to background sweeper.                                                    | `PublishResult.IndexingDeferred`                                                                     | `SchemaMetadata` JSON object                                                              |
+| `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                                                                                                                                                        | `PublishResult.IdempotentCollision`                                                                  | `SchemaMetadata` JSON object                                                              |
+| `201`       | Created                | Schema validated, persisted to CAS storage, and cataloged.                                                                                                                                                                                       | `PublishResult.Success`                                                                              | `SchemaMetadata` JSON object                                                              |
+| `202`       | Accepted               | CAS write succeeded; relational database indexing deferred to background sweeper.                                                                                                                                                                | `PublishResult.IndexingDeferred`                                                                     | `SchemaMetadata` JSON object                                                              |
 
 ---
 
 ## Zero-Trust Ingress Boundary Verification & Wire Governance
 
 ### Byte 4 Control Byte Layout
+
 All incoming binary streams start with a 4-byte magic sequence (`0x53 0x54 0x56 0x4E`, ASCII `"STVN"`), followed immediately by Byte 4 (the Control Byte):
 
 ```
@@ -236,7 +251,9 @@ Bit 7           Bit 6   Bit 5   Bit 4   Bit 3   Bit 2   Bit 1   Bit 0
 * **Bits 3..0 (`0x0F SCHEMA IDENTITY STRATEGY`):** Identifies how schema metadata attaches (`0x0` Universal Default, `0x1` Explicit SHA-256, `0x2` Self-Describing Schema).
 
 ### Hardware-Accelerated CRC-32C Verification
+
 When Byte 4 Bit 7 is set:
+
 1. The buffer length must be at least 9 bytes (5 header bytes + 4 trailer bytes). Truncated buffers fail immediately.
 2. The verifier initializes `java.util.zip.CRC32C`, leveraging hardware CPU intrinsics (SSE4.2 on x86-64, ARMv8 CRC instructions on aarch64).
 3. The verifier computes the checksum over bytes `0..(limit - 4)`.
@@ -249,6 +266,7 @@ When Byte 4 Bit 7 is set:
 ## Storage & CAS Topology
 
 ### 2/62 Sharding Layout
+
 Files are written under `<CAS_ROOT>` using a two-character prefix directory to prevent filesystem inode saturation:
 
 ```
@@ -260,15 +278,19 @@ data/cas/
 ```
 
 ### Envelope Framing Format
+
 The physical `.stvn_cas` file encloses the canonical schema in a standard AST tuple envelope:
+
 ```stvn
 (:Tuple "UserProfile" "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" "{ :defs { :UserProfile :Tuple( :Int64 :String ) } }")
 ```
 
 ### Enum Subset CAS Hashing Invariants & Non-Collision Guarantees
+
 STVN v1.1.0 introduced nominal enum subset views (`#filterIncl`, `#filterExcl`). In prior versions, structural hashing could generate identical CAS digests for a subset and its parent enum.
 
 `StvnSchemaHasher` digests all subset attributes in sequential order:
+
 1. `subsetName:<name>`
 2. `subsetParent:<parentType>`
 3. `subsetRoot:<rootEnum>`
@@ -276,9 +298,10 @@ STVN v1.1.0 introduced nominal enum subset views (`#filterIncl`, `#filterExcl`).
 5. `subsetVariant:<variant>` (for each allowed variant in sorted relative declaration order)
 
 Because all metadata feeds into `MessageDigest("SHA-256")`:
-$$\text{CAS}(:\text{Status}) \ne \text{CAS}(:\text{ActiveStatus}) \ne \text{CAS}(:\text{NonDeleted})$$
+$$\text{CAS} (:\text{Status}) \ne \text{CAS} (:\text{ActiveStatus}) \ne \text{CAS} (:\text{NonDeleted})$$
 
 This cryptographic property guarantees:
+
 * An enum subset never overwrites its parent enum in physical `2/62` CAS storage.
 * Sibling subsets with different variant selections produce divergent CAS files.
 * Transitive derivation chains (`:ExecutionStatus` $\to$ `:WorkableStatus` $\to$ `:ActiveStatus` $\to$ `:TaskStatus`) retain unique fingerprints throughout the derivation tree.
@@ -300,12 +323,14 @@ This cryptographic property guarantees:
 ## Building and Running
 
 ### Build with Maven
+
 ```bash
 ./mvnw clean compile
 ./mvnw test
 ```
 
 ### Local Execution with Embedded H2
+
 ```bash
 export DB_URL="jdbc:h2:mem:stvnadore;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE"
 export DB_AUTO_INIT="true"
@@ -314,6 +339,7 @@ export CAS_ROOT="target/cas_data"
 ```
 
 ### Production Execution with PostgreSQL & Docker
+
 ```bash
 # 1. Start PostgreSQL
 docker run --name stvn-postgres -e POSTGRES_DB=stvnadore -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres:16-alpine
@@ -369,10 +395,10 @@ Please email: <jim.oflaherty.jr+srrml@gmail.com>, letting us know what license y
 
 # Version History
 
-## v1.3.0-SNAPSHOT
+## v1.3.0
 
-- 2026.09.16
-- Synchronized ecosystem baseline with `stvnadore-core:1.3.0-SNAPSHOT`
+- 2026.09.17
+- Synchronized ecosystem baseline with `stvnadore-core:1.3.0`
 - Enforced Strict Zero-Tab Invariant (`ERR_TAB_CHARACTER_FORBIDDEN`) at schema ingress boundary
 - Re-ordered ingress compiler gate before Gate 2 AST checks, preventing diagnostic masking of tab characters
 - Enforced centralized string and binary payload capacity bounds (`StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY` = 16 MiB) with HTTP 422 `ERR_CAPACITY_OVERFLOW`
