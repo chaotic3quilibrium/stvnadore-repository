@@ -39,7 +39,7 @@ import java.util.stream.Stream;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * End-to-end integration test verifying core 1.3.0-SNAPSHOT alignment.
+ * End-to-end integration test verifying core 1.3.0 alignment.
  * Confirms strict zero-tab rejection, package FQNI desugaring, string capacity bounds,
  * and CAS digest determinism across real H2 and physical CAS storage.
  */
