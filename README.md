@@ -14,11 +14,10 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
 
 ---
 
-# Table of Contents <!-- omit in toc -->
+**Table of Contents**
 
 <!-- TOC -->
 * [STVN Schema Repository Server (`stvnadore-repository`)](#stvn-schema-repository-server-stvnadore-repository)
-* [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
   * [Architecture Overview](#architecture-overview)
   * [REST API Specification](#rest-api-specification)
     * [Media Type Standard](#media-type-standard)
@@ -380,12 +379,10 @@ Please email: <jim.oflaherty.jr+srrml@gmail.com>, letting us know what license y
   - Hermetic flat payload tier (newly introduced `.stvn_f`) and flat schema tier (existing `.stvn_inclf`)
   - Arbitrary bit-width integer overflow enforcement (BigInteger)
   - Updated shared-fixtures conformance suite
-- Grammar-Kit BNF & JFlex lexer synchronized with `:package`, `:use`, and `#strip`
-- Dedicated `.stvn_f` file type and PSI file representation (`StvnFlatPayloadFile`)
-- 5 new real-time inspections registered (12 total in plugin suite)
-- Synthetic in-memory PSI bridge for prelude definitions (`StvnPreludeBridge`)
-- Error-resilient parsing preventing AST fracture on illegal syntax
-
+- Double-Gate Ingress boundary (Gate 1 filename hygiene + Gate 2 AST structure)
+- Headless `.stvn_inclf` schema validation via `compileToResult()`
+- Forensically tagged quarantine pipeline in `RelationalProjectionSweeper`
+- Canonical flattened AST SHA-256 CAS address derivation
 
 ## v1.1.1
 

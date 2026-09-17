@@ -7,11 +7,10 @@
 
 ---
 
-# Table of Contents <!-- omit in toc -->
+**Table of Contents**
 
 <!-- TOC -->
 * [STVN Architectural Specification: Schema Repository Server Overview](#stvn-architectural-specification-schema-repository-server-overview)
-* [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
   * [1. Purpose & Core Responsibilities](#1-purpose--core-responsibilities)
   * [2. Double-Gate Ingress Boundary](#2-double-gate-ingress-boundary)
     * [Gate 1: Filename Extension Hygiene](#gate-1-filename-extension-hygiene)

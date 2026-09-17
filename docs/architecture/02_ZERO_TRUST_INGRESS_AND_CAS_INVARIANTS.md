@@ -7,11 +7,10 @@
 
 ---
 
-# Table of Contents <!-- omit in toc -->
+**Table of Contents**
 
 <!-- TOC -->
 * [STVN Architectural Specification: Zero-Trust Ingress Verification, Byte 4 Wire Governance, and Enum Subset CAS Invariants](#stvn-architectural-specification-zero-trust-ingress-verification-byte-4-wire-governance-and-enum-subset-cas-invariants)
-* [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
   * [1. Architectural Purpose & Scope](#1-architectural-purpose--scope)
   * [2. Double-Gate Ingress Boundary for Flat Schemas (.stvn_inclf)](#2-double-gate-ingress-boundary-for-flat-schemas-stvn_inclf)
     * [2.1 Gate 1: Filename Hygiene](#21-gate-1-filename-hygiene)
