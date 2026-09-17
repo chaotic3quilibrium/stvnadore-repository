@@ -205,4 +205,26 @@ public class RelationalProjectionSweeperTest {
             assertTrue(files.get(0).getFileName().toString().contains("MALFORMED_INNER_STRUCTURE"));
         }
     }
+
+    @Test
+    public void testSweeperQuarantinesEnvelopeWithTabAsInvalidInnerAst() throws IOException {
+        String schemaName = "tabbed-schema.stvn_inclf";
+        String innerSourceText = "{\n\t:defs {\n\t\t:UserId :Uint64\n\t}\n}";
+        String fakeHash = "9999999999999999999999999999999999999999999999999999999999999999";
+
+        String envelope = StvnCasPackager.packageEnvelope(schemaName, fakeHash, innerSourceText);
+        casStorage.write(fakeHash, envelope.getBytes(StandardCharsets.UTF_8));
+
+        when(scanner.listAllCasHashes()).thenReturn(List.of(fakeHash));
+        when(indexRepository.existsByHash(fakeHash)).thenReturn(false);
+
+        sweeper.run();
+
+        verify(indexRepository, never()).save(any(SchemaMetadata.class), anyString());
+        Path quarantineDir = tempCasRoot.resolve(".quarantine");
+        assertTrue(Files.exists(quarantineDir));
+        Path quarantinedFile = Files.list(quarantineDir).findFirst().orElseThrow();
+        assertTrue(quarantinedFile.toString().contains("INVALID_INNER_AST"),
+            "Quarantine tag must report INVALID_INNER_AST on raw tab characters");
+    }
 }

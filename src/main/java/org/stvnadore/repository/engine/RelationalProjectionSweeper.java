@@ -141,6 +141,23 @@ public class RelationalProjectionSweeper implements Runnable {
                     continue;
                 }
 
+                // Headless Validation: Verify inner schema compiles cleanly (STRICT catches tabs & syntax errors)
+                StvnCompilationResult<StvnValue> innerResult = StvnCompiler.compileToResult(innerSourceText, schemaName, StvnParserConfig.STRICT);
+                if (innerResult.hasErrors()) {
+                    boolean isIllegalInclude = innerResult.diagnostics().stream()
+                        .anyMatch(d -> d.errorCode().filter("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT"::equals).isPresent()
+                            || d.message().contains("cannot contain include statements")
+                            || d.message().contains("ERR_INCLUDES_PROHIBITED"));
+                    if (isIllegalInclude) {
+                        logger.error("Inner schema contains illegal :include directive: {}", schemaName);
+                        quarantine(casHash, "ILLEGAL_INCLUDES_IN_FLAT_SCHEMA");
+                    } else {
+                        logger.error("Inner schema compilation diagnostics detected for {}: {}", schemaName, innerResult.diagnostics());
+                        quarantine(casHash, "INVALID_INNER_AST");
+                    }
+                    continue;
+                }
+
                 // Gate 2 (AST Structure Invariant): Root context must contain strictly a :defs section
                 StvnLexer innerLexer = new StvnLexer(CharStreams.fromString(innerSourceText));
                 innerLexer.removeErrorListeners();
@@ -160,14 +177,6 @@ public class RelationalProjectionSweeper implements Runnable {
                 if (hasIncludes) {
                     logger.error("Inner schema contains illegal :include directive: {}", schemaName);
                     quarantine(casHash, "ILLEGAL_INCLUDES_IN_FLAT_SCHEMA");
-                    continue;
-                }
-
-                // Headless Validation: Verify inner schema compiles cleanly without body
-                StvnCompilationResult<StvnValue> innerResult = StvnCompiler.compileToResult(innerSourceText, schemaName, StvnParserConfig.STRICT);
-                if (innerResult.hasErrors()) {
-                    logger.error("Inner schema compilation diagnostics detected for {}: {}", schemaName, innerResult.diagnostics());
-                    quarantine(casHash, "INVALID_INNER_AST");
                     continue;
                 }
 

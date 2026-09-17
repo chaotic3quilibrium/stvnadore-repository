@@ -28,7 +28,7 @@ public class StvnCasPackager {
                "  :defs {\n" +
                "    :SchemaName :String\n" +
                "    :StvnInclf {#preserveIndent #T} :String\n" +
-               "  }  \n" +
+               "  }\n" +
                "  :type :Tuple(:SchemaName :StvnInclf)\n" +
                "  :body (\n" +
                "    \"" + schemaName + "\"\n" +

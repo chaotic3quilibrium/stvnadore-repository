@@ -1,0 +1,8 @@
+{
+  :defs {
+    :package :org/stvnadore/sample {
+      :ServiceId :Uint32
+      :ServiceName :String
+    }
+  }
+}

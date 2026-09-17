@@ -1,0 +1,6 @@
+{
+  :defs {
+    :RecordId :Uint64
+    :PayloadText :StringNonEmpty
+  }
+}

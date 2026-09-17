@@ -66,6 +66,7 @@ public class RepositoryApplication {
 
     // 5. Configure Javalin App using Virtual Threads
     var app = Javalin.create(config -> {
+      config.http.maxRequestSize = 32_000_000L;
       config.jetty.modifyServer(server -> {
         if (server.getThreadPool() instanceof org.eclipse.jetty.util.thread.QueuedThreadPool queuedThreadPool) {
           queuedThreadPool.setVirtualThreadsExecutor(Executors.newVirtualThreadPerTaskExecutor());
