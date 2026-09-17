@@ -2,21 +2,22 @@
 
 - **Document ID**: STVN-SPEC-REPO-01
 - **Status**: Canonical Specification
-- **Version**: 1.2.0
+- **Version**: 1.3.0-SNAPSHOT
 - **Compliance**: Mandatory for all STVN ecosystem server implementations.
 
 ---
 
-# Table of Contents <!-- omit in toc -->
+**Table of Contents**
 
 <!-- TOC -->
 * [STVN Architectural Specification: Schema Repository Server Overview](#stvn-architectural-specification-schema-repository-server-overview)
-* [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
   * [1. Purpose & Core Responsibilities](#1-purpose--core-responsibilities)
   * [2. Double-Gate Ingress Boundary](#2-double-gate-ingress-boundary)
+    * [Perimeter Capacity Bound](#perimeter-capacity-bound)
     * [Gate 1: Filename Extension Hygiene](#gate-1-filename-extension-hygiene)
+    * [Headless Compilation & Zero-Tab Invariant](#headless-compilation--zero-tab-invariant)
     * [Gate 2: AST Structure Invariant](#gate-2-ast-structure-invariant)
-    * [Headless Compilation & Canonical Flattening](#headless-compilation--canonical-flattening)
+    * [Canonical Flattening & Exported Interface Retention](#canonical-flattening--exported-interface-retention)
   * [3. Content-Addressable Storage (CAS) Specification](#3-content-addressable-storage-cas-specification)
     * [2/62 Filesystem Sharding Layout](#262-filesystem-sharding-layout)
     * [Enum Subset CAS Invariant](#enum-subset-cas-invariant)
@@ -40,14 +41,15 @@
 
 The STVN Schema Repository is a high-throughput, non-blocking Content-Addressable Storage (CAS) and Relational Schema Catalog service. It provides:
 
-1. **Double-Gate Ingress Boundary**: Strictly enforces filename hygiene (`.stvn_inclf`) and AST structure invariants (`:defs` only, zero `:include`, zero `:type`, zero `:body`) on all inbound schemas.
-2. **Headless Semantic Compilation**: Validates schema definitions without requiring a document body payload using `StvnCompiler.compileToResult()`.
-3. **Canonical AST Flattening & CAS Digesting**: Expands `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), applies unary `#strip`, derives structural shape signatures, and hashes the canonical output via SHA-256.
-4. **Content-Addressable Storage (CAS)**: Cryptographically deterministic, immutable storage for `.stvn_cas` schema envelopes sharded across the filesystem using a 2/62 prefix/suffix partitioning layout.
-5. **Relational Version Catalog**: Fast query indexing mapping nominal schema names and flattened structural shape signatures to cryptographic CAS content hashes.
-6. **Strict Immutability Invariant**: Schema mutations are strictly prohibited. Publishing an existing schema name with a different cryptographic hash produces an HTTP 409 Conflict.
-7. **Zero-Trust Binary Ingress Boundary**: Incoming binary streams undergo hardware-accelerated CRC-32C trailer verification and Byte 4 wire governance prior to storage commitment.
-8. **Self-Healing Background Projection Sweeper**: A background virtual thread asynchronously scans the physical CAS directory, re-validates Double-Gate invariants, recalculates SHA-256 CAS hashes from flattened shapes, reconciles missing index entries, and relocates invalid files to `.quarantine/`.
+1. **Perimeter Capacity Enforcement**: Validates payload size against `StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY` (16 MiB) before parsing.
+2. **Double-Gate Ingress Boundary**: Strictly enforces filename hygiene (`.stvn_inclf`), semantic compilation with zero raw tabs (`ERR_TAB_CHARACTER_FORBIDDEN`), and AST structure invariants (`:defs` only, zero `:include`, zero `:type`, zero `:body`).
+3. **Headless Semantic Compilation**: Validates schema definitions without requiring a document body payload through `StvnCompiler.compileToResult(STRICT)`.
+4. **Canonical AST Flattening & CAS Digesting**: Expands `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), retains exported interfaces without dead-code pruning, applies unary `#strip`, derives structural shape signatures, and hashes the canonical output via SHA-256.
+5. **Content-Addressable Storage (CAS)**: Cryptographically deterministic, immutable storage for `.stvn_cas` schema envelopes sharded across the filesystem using a 2/62 prefix/suffix partitioning layout.
+6. **Relational Version Catalog**: Fast query indexing mapping nominal schema names and flattened structural shape signatures to cryptographic CAS content hashes.
+7. **Strict Immutability Invariant**: Schema mutations are strictly prohibited. Publishing an existing schema name with a different cryptographic hash produces an HTTP 409 Conflict.
+8. **Zero-Trust Binary Ingress Boundary**: Incoming binary streams undergo hardware-accelerated CRC-32C trailer verification and Byte 4 wire governance prior to storage commitment.
+9. **Self-Healing Background Projection Sweeper**: A background virtual thread asynchronously scans the physical CAS directory, re-validates Double-Gate invariants, recalculates SHA-256 CAS hashes from flattened shapes, reconciles missing index entries, and relocates invalid files to `.quarantine/`.
 
 ```mermaid
 flowchart TD
@@ -55,18 +57,21 @@ flowchart TD
     Handler -->|"PublishRequest(name, sourceText)"| Engine["SimpleSchemaRepositoryEngine"]
     
     subgraph Ingress ["Double-Gate Ingress Boundary"]
+        Cap{"Perimeter Capacity Check\nLength <= 16 MiB?"}
         Gate1{"Gate 1: Filename Hygiene\nEnds with .stvn_inclf?"}
+        Compile["StvnCompiler.compileToResult()\nZero-Tab Invariant (STRICT)"]
         Gate2{"Gate 2: AST Structure\nStrictly :defs?\nZero :include, :type, :body?"}
-        Compile["StvnCompiler.compileToResult()\nHeadless Semantic Check"]
     end
     
-    Engine --> Gate1
+    Engine --> Cap
+    Cap -- "Overflow" --> ErrCap["HTTP 422 ValidationError\n(ERR_CAPACITY_OVERFLOW)"]
+    Cap -- "Valid" --> Gate1
     Gate1 -- "No" --> Err1["HTTP 422 ValidationError"]
-    Gate1 -- "Yes" --> Gate2
-    Gate2 -- "Violation" --> Err2["HTTP 422 ValidationError"]
-    Gate2 -- "Valid" --> Compile
-    Compile -- "Diagnostics" --> Err3["HTTP 422 ValidationError"]
-    Compile -- "Clean" --> Flattener["StvnSchemaFlattener.flatten()\nResolve packages, #strip"]
+    Gate1 -- "Yes" --> Compile
+    Compile -- "Diagnostics / Tabs" --> Err2["HTTP 422 ValidationError\n(ERR_TAB_CHARACTER_FORBIDDEN)"]
+    Compile -- "Clean" --> Gate2
+    Gate2 -- "Violation" --> Err3["HTTP 422 ValidationError"]
+    Gate2 -- "Valid" --> Flattener["StvnSchemaFlattener.flatten()\nResolve packages, #strip"]
     
     Flattener --> CASDigest["SHA-256 Canonical Digest\nDerive 64-char hex casHash"]
     CASDigest --> CAS["FileSystemCasStorage\n(2/62 Sharding: aa/bb...stvn_cas)"]
@@ -74,7 +79,8 @@ flowchart TD
 
     subgraph Background ["Background Virtual Thread"]
         Sweeper["RelationalProjectionSweeper"] -->|Scan Files| CAS
-        Sweeper -->|Validate Gates 1 & 2| Sweeper
+        Sweeper -->|Compile First| Sweeper
+        Sweeper -->|Validate Structure| Sweeper
         Sweeper -->|Flatten & Re-hash| Sweeper
         Sweeper -->|Reconcile Missing| DB
         Sweeper -->|Gate Failure / Hash Mismatch| Quarantine[".quarantine/"]
@@ -85,20 +91,31 @@ flowchart TD
 
 ## 2. Double-Gate Ingress Boundary
 
+### Perimeter Capacity Bound
+All incoming schema payloads (both text and binary) must strictly satisfy the centralized capacity bound:
+* The engine asserts payload size does not exceed `StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY` (16 MiB = 16,777,216 bytes).
+* Payloads exceeding this bound immediately return `PublishResult.ValidationError` (HTTP 422) with diagnostic code `ERR_CAPACITY_OVERFLOW`.
+
 ### Gate 1: Filename Extension Hygiene
 All incoming flat schemas must strictly carry the `.stvn_inclf` filename suffix:
-* `schemaName.endsWith(".stvn_inclf")` is asserted at the ingress perimeter.
+* The engine asserts `schemaName.endsWith(".stvn_inclf")` at the ingress perimeter.
 * Violations immediately return `PublishResult.ValidationError` (HTTP 422) with diagnostic message `ERR_MALFORMED_SCHEMA_IN_ENVELOPE`.
 
+### Headless Compilation & Zero-Tab Invariant
+The engine compiles the schema via `StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT)` before executing Gate 2 AST structure checks:
+* Re-ordering semantic compilation ahead of structural inspection ensures authentic diagnostic reporting.
+* Raw horizontal tab characters (`\t`, `U+0009`) fail compilation and produce diagnostic code `ERR_TAB_CHARACTER_FORBIDDEN`.
+* Compiler diagnostics immediately return `PublishResult.ValidationError` (HTTP 422) with the authentic compiler diagnostic list.
+
 ### Gate 2: AST Structure Invariant
-Flat schema documents stored in CAS serve as standalone, headless include definitions:
+Following clean semantic compilation, the engine verifies flat schema structural invariants:
 * The root document context must contain strictly a `:defs` section.
-* Top-level `:type` and `:body` sections are strictly prohibited.
+* Top-level `:type` and `:body` sections are strictly prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
 * Embedded `:include` directives are strictly prohibited in flat schemas (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
 
-### Headless Compilation & Canonical Flattening
-* Ingress validation compiles schemas without requiring a payload body via `StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT)`.
+### Canonical Flattening & Exported Interface Retention
 * `StvnSchemaFlattener.flatten(Map.of(schemaName, sourceText), schemaName)` resolves `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), applies unary `#strip`, and sorts definitions alphabetically.
+* Flat include schemas (`.stvn_inclf`) lack a root `:type` seed; therefore, `StvnCanonicalDefinitionsResolver` retains all exported package interface definitions without dead-code elimination.
 * The 64-character lowercase hexadecimal CAS address is computed as:
   $$\text{CAS Hash} = \text{SHA-256}(\text{shapeSignature.getBytes(StandardCharsets.UTF\_8)})$$
 
@@ -206,16 +223,16 @@ Raw schema sources are wrapped in a canonical STVN tuple envelope:
   * `404 Not Found`: CAS file not found on disk.
 
 ### 5. HTTP Error Mapping Taxonomy
-| Status Code | Status Name            | Root Cause                                                                                    |
-|:------------|:-----------------------|:----------------------------------------------------------------------------------------------|
-| `400`       | Bad Request            | Empty payload, invalid STVN magic header bytes, or non-64 hex char hash.                      |
-| `404`       | Not Found              | Schema shape signature or CAS hash not found.                                                 |
-| `409`       | Conflict               | Schema name already registered with a different cryptographic hash.                           |
-| `415`       | Unsupported Media Type | Missing or invalid Content-Type header.                                                       |
-| `422`       | Unprocessable Entity   | Gate 1/2 violation, AST compilation error, CRC-32C mismatch, or strategy sentinel `0x7`.      |
-| `200`       | OK                     | Idempotent duplicate submission.                                                              |
-| `201`       | Created                | Successful schema registration and persistence.                                               |
-| `202`       | Accepted               | CAS write succeeded; relational catalog update deferred to background sweeper.                |
+| Status Code | Status Name            | Root Cause                                                                                                         |
+|:------------|:-----------------------|:-------------------------------------------------------------------------------------------------------------------|
+| `400`       | Bad Request            | Empty payload, invalid STVN magic header bytes, or non-64 hex char hash.                                           |
+| `404`       | Not Found              | Schema shape signature or CAS hash not found.                                                                      |
+| `409`       | Conflict               | Schema name already registered with a different cryptographic hash.                                                |
+| `415`       | Unsupported Media Type | Missing or invalid Content-Type header.                                                                            |
+| `422`       | Unprocessable Entity   | Payload > 16 MiB (`ERR_CAPACITY_OVERFLOW`), Gate 1/2 violation, tabs or syntax errors, CRC-32C mismatch, or `0x7`. |
+| `200`       | OK                     | Idempotent duplicate submission.                                                                                   |
+| `201`       | Created                | Successful schema registration and persistence.                                                                    |
+| `202`       | Accepted               | CAS write succeeded; relational catalog update deferred to background sweeper.                                     |
 
 ---
 
@@ -227,8 +244,8 @@ The `RelationalProjectionSweeper` executes every 60 seconds on a Java 21 Virtual
 3. If missing:
    - Unpacks the envelope tuple via `StvnCasPackager`.
    - Enforces **Gate 1**: schema filename must end with `.stvn_inclf`.
-   - Enforces **Gate 2**: inner source must contain strictly `:defs` with zero `:include`, `:type`, or `:body`.
-   - Performs **Headless Validation**: verifies inner source compiles cleanly without diagnostics.
+   - Performs **Headless Semantic Compilation**: compiles inner source via `StvnCompiler.compileToResult(STRICT)`. Quarantines invalid syntax or raw horizontal tabs under `INVALID_INNER_AST`.
+   - Enforces **Gate 2**: inner source must contain strictly `:defs` with zero `:include`, `:type`, or `:body`. Quarantines illegal includes under `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA` and missing `:defs` or top-level `:type`/`:body` under `MALFORMED_INNER_STRUCTURE`.
    - Derives canonical shape signature via `StvnSchemaFlattener.flatten()`.
    - Computes SHA-256 CAS address from the canonical shape signature.
    - Verifies computed hash strictly matches the CAS filename hash.
@@ -237,13 +254,13 @@ The `RelationalProjectionSweeper` executes every 60 seconds on a Java 21 Virtual
    `data/cas/.quarantine/<filename>.<timestamp>.<REASON>.quarantine`
 
 ### Forensic Quarantine Reason Taxonomy
-| Reason Tag                        | Verification Gate Trigger | Description                                                               |
-|:----------------------------------|:--------------------------|:--------------------------------------------------------------------------|
-| `EMPTY_PAYLOAD`                   | Storage I/O               | CAS file exists but contains 0 bytes.                                     |
-| `CORRUPT_ENVELOPE`                | Outer Envelope            | Outer envelope fails STVN parser or is not a valid 2-element tuple.       |
-| `INVALID_FILENAME_EXTENSION`      | Gate 1 Hygiene            | Embedded schema filename does not end with `.stvn_inclf`.                 |
-| `MALFORMED_INNER_STRUCTURE`       | Gate 2 Structure          | Root document contains `:type` or `:body`, or lacks `:defs`.              |
-| `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA` | Gate 2 Structure          | Inner flat schema contains forbidden `:include` directive.                |
-| `INVALID_INNER_AST`               | Headless Compilation      | Upstream STVN compiler reports syntax or type check errors.               |
-| `FLATTENING_ERROR`                | Flattener Pipeline        | `StvnSchemaFlattener` fails to normalize definitions.                     |
-| `HASH_MISMATCH`                   | Cryptographic CAS         | Recalculated SHA-256 shape hash does not match the 64-char filename hash. |
+| Reason Tag                        | Verification Gate Trigger | Description                                                                                    |
+|:----------------------------------|:--------------------------|:-----------------------------------------------------------------------------------------------|
+| `EMPTY_PAYLOAD`                   | Storage I/O               | CAS file exists but contains 0 bytes.                                                          |
+| `CORRUPT_ENVELOPE`                | Outer Envelope            | Outer envelope fails STVN parser or is not a valid 2-element tuple.                            |
+| `INVALID_FILENAME_EXTENSION`      | Gate 1 Hygiene            | Embedded schema filename does not end with `.stvn_inclf`.                                      |
+| `MALFORMED_INNER_STRUCTURE`       | Gate 2 Structure          | Root document contains `:type` or `:body`, or lacks `:defs`.                                   |
+| `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA` | Gate 2 Structure          | Inner flat schema contains forbidden `:include` directive.                                     |
+| `INVALID_INNER_AST`               | Headless Compilation      | Upstream STVN compiler reports syntax or type check errors, or forbidden horizontal tabs.     |
+| `FLATTENING_ERROR`                | Flattener Pipeline        | `StvnSchemaFlattener` fails to normalize definitions.                                          |
+| `HASH_MISMATCH`                   | Cryptographic CAS         | Recalculated SHA-256 shape hash does not match the 64-char filename hash.                      |

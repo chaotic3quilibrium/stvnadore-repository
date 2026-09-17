@@ -1,6 +1,6 @@
 # STVN Schema Repository Server (`stvnadore-repository`)
 
-[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.2.0-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
+[![STVN Schema Repository Server](https://img.shields.io/badge/STVN-1.3.0--SNAPSHOT-blue.svg)](https://github.com/chaotic3quilibrium/stvnadore-repository/blob/main/docs/architecture/01_STVN_SCHEMA_REPOSITORY_OVERVIEW.md)
 [![Java 21 LTS](https://img.shields.io/badge/Java-21%20LTS-blue.svg)](https://openjdk.org/projects/jdk/21/)
 [![Javalin Framework](https://img.shields.io/badge/Javalin-6.3.0-purple.svg)](https://javalin.io/)
 [![Storage Topology](https://img.shields.io/badge/Storage-2%2F62%20CAS%20Sharding-orange.svg)]()
@@ -10,15 +10,14 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
 
 ---
 
-- Version: 1.2.0 - 2026.09.12
+- Version: 1.3.0-SNAPSHOT - 2026.09.16
 
 ---
 
-# Table of Contents <!-- omit in toc -->
+**Table of Contents**
 
 <!-- TOC -->
 * [STVN Schema Repository Server (`stvnadore-repository`)](#stvn-schema-repository-server-stvnadore-repository)
-* [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
   * [Architecture Overview](#architecture-overview)
   * [REST API Specification](#rest-api-specification)
     * [Media Type Standard](#media-type-standard)
@@ -53,6 +52,7 @@ Production Content-Addressable Storage (CAS) and Relational Schema Catalog servi
     * [FYI, I'd prefer to move stvnadore-core to an Apache 2.0 license](#fyi-id-prefer-to-move-stvnadore-core-to-an-apache-20-license)
     * [I'm not looking to win the lottery, I just don't want to work for free](#im-not-looking-to-win-the-lottery-i-just-dont-want-to-work-for-free)
 * [Version History](#version-history)
+  * [v1.3.0-SNAPSHOT](#v130-snapshot)
   * [v1.2.0](#v120)
   * [v1.1.1](#v111)
   * [v1.1.0](#v110)
@@ -211,7 +211,7 @@ The repository uses explicit HTTP status codes to distinguish client transport e
 | `404`       | Not Found              | Schema shape signature not found in catalog, or CAS file missing on disk.                                                            | `Optional.empty()`                                                                                   | Empty body                                                                                |
 | `409`       | Conflict               | Schema name already registered with a different cryptographic hash. Mutations are prohibited.                                        | `PublishResult.SchemaConflict`                                                                       | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`                 |
 | `415`       | Unsupported Media Type | Missing `Content-Type` header or header value not recognized (`!= application/stvn` or `application/stvn-bin`).                      | Content type guard                                                                                   | `{"error": "Unsupported Media Type", "message": "..."}`                                   |
-| `422`       | Unprocessable Entity   | AST compiler diagnostics, CRC-32C trailer mismatch, stream size under 9 bytes with CRC enabled, or strategy sentinel `0x7` detected. | `PublishResult.ValidationError`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` objects or `{"error": "Malformed Payload", "message": "..."}` |
+| `422`       | Unprocessable Entity   | Tab character violation (`ERR_TAB_CHARACTER_FORBIDDEN`), capacity bound overflow (`ERR_CAPACITY_OVERFLOW`), AST compiler diagnostics, CRC-32C trailer mismatch, stream size under 9 bytes with CRC enabled, or strategy sentinel `0x7` detected. | `PublishResult.ValidationError`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` objects or `{"error": "Malformed Payload", "message": "..."}` |
 | `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                                            | `PublishResult.IdempotentCollision`                                                                  | `SchemaMetadata` JSON object                                                              |
 | `201`       | Created                | Schema validated, persisted to CAS storage, and cataloged.                                                                           | `PublishResult.Success`                                                                              | `SchemaMetadata` JSON object                                                              |
 | `202`       | Accepted               | CAS write succeeded; relational database indexing deferred to background sweeper.                                                    | `PublishResult.IndexingDeferred`                                                                     | `SchemaMetadata` JSON object                                                              |
@@ -369,6 +369,18 @@ Please email: <jim.oflaherty.jr+srrml@gmail.com>, letting us know what license y
 
 # Version History
 
+## v1.3.0-SNAPSHOT
+
+- 2026.09.16
+- Synchronized ecosystem baseline with `stvnadore-core:1.3.0-SNAPSHOT`
+- Enforced Strict Zero-Tab Invariant (`ERR_TAB_CHARACTER_FORBIDDEN`) at schema ingress boundary
+- Re-ordered ingress compiler gate before Gate 2 AST checks, preventing diagnostic masking of tab characters
+- Enforced centralized string and binary payload capacity bounds (`StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY` = 16 MiB) with HTTP 422 `ERR_CAPACITY_OVERFLOW`
+- Re-ordered `RelationalProjectionSweeper` verification to accurately quarantine tab violations under `INVALID_INNER_AST`
+- Normalized `StvnCasPackager` envelope formatting to canonical 2-space indentation format with zero trailing whitespace
+- Confirmed full exported interface retention for modular include schemas (`.stvn_inclf`) and deterministic dead-code pruning for document schemas (`.stvn`)
+- Enforced strict doclint compliance (`doclint=all`) and zero compiler warnings under `-Werror` and `-Xlint:all`
+
 ## v1.2.0
 
 - 2026.09.12
@@ -380,12 +392,10 @@ Please email: <jim.oflaherty.jr+srrml@gmail.com>, letting us know what license y
   - Hermetic flat payload tier (newly introduced `.stvn_f`) and flat schema tier (existing `.stvn_inclf`)
   - Arbitrary bit-width integer overflow enforcement (BigInteger)
   - Updated shared-fixtures conformance suite
-- Grammar-Kit BNF & JFlex lexer synchronized with `:package`, `:use`, and `#strip`
-- Dedicated `.stvn_f` file type and PSI file representation (`StvnFlatPayloadFile`)
-- 5 new real-time inspections registered (12 total in plugin suite)
-- Synthetic in-memory PSI bridge for prelude definitions (`StvnPreludeBridge`)
-- Error-resilient parsing preventing AST fracture on illegal syntax
-
+- Double-Gate Ingress boundary (Gate 1 filename hygiene + Gate 2 AST structure)
+- Headless `.stvn_inclf` schema validation via `compileToResult()`
+- Forensically tagged quarantine pipeline in `RelationalProjectionSweeper`
+- Canonical flattened AST SHA-256 CAS address derivation
 
 ## v1.1.1
 

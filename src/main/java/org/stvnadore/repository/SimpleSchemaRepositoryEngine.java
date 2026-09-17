@@ -9,6 +9,7 @@ import org.stvnadore.core.StvnSchemaFlattener;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer;
 import org.stvnadore.core.binary.StvnSchemaHasher;
+import org.stvnadore.core.utils.StvnStringCapacityUtils;
 import org.stvnadore.core.ir.StvnValue;
 import org.stvnadore.core.parser.StvnLexer;
 import org.stvnadore.core.parser.StvnParser;
@@ -76,11 +77,27 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             ));
         }
 
+        // Perimeter Gate: Enforce centralized string capacity bounds (16 MiB)
+        if (sourceText.length() > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_CAPACITY_OVERFLOW: Payload exceeds maximum allowed string capacity: " + StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + " characters", 1, 1)
+            ));
+        }
+
         // Gate 1 (Filename Hygiene): Enforce that schema filename strictly ends with .stvn_inclf
         if (!schemaName.endsWith(".stvn_inclf")) {
             return new PublishResult.ValidationError(List.of(
                 new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema filename must strictly end with '.stvn_inclf': " + schemaName, 1, 1)
             ));
+        }
+
+        // Headless Validation Gate: Compile schema first to catch syntax errors and raw tab characters
+        StvnCompilationResult<StvnValue> compileResult = StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT);
+        if (compileResult.hasErrors()) {
+            List<CompileDiagnostic> compileDiagnostics = compileResult.diagnostics().stream()
+                .map(d -> new CompileDiagnostic(d.message(), d.line(), d.column()))
+                .toList();
+            return new PublishResult.ValidationError(compileDiagnostics);
         }
 
         // Gate 2 (AST Structure Invariant): Root context must contain strictly a :defs section
@@ -114,15 +131,6 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
                     new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_inclf) cannot contain :include directives", 1, 1)
                 ));
             }
-        }
-
-        // Headless Validation: Compile schema without requiring payload body
-        StvnCompilationResult<StvnValue> compileResult = StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT);
-        if (compileResult.hasErrors()) {
-            List<CompileDiagnostic> compileDiagnostics = compileResult.diagnostics().stream()
-                .map(d -> new CompileDiagnostic(d.message(), d.line(), d.column()))
-                .toList();
-            return new PublishResult.ValidationError(compileDiagnostics);
         }
 
         // 2. Derive canonical structural shape signature via flattener
@@ -189,6 +197,13 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         if (binaryPayload == null || binaryPayload.length == 0) {
             return new PublishResult.ValidationError(List.of(
                 new CompileDiagnostic("Binary payload cannot be empty", 1, 1)
+            ));
+        }
+
+        // Perimeter Gate: Enforce centralized capacity limit on binary payload (16 MiB)
+        if (binaryPayload.length > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_CAPACITY_OVERFLOW: Binary payload exceeds maximum allowed capacity: " + StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + " bytes", 1, 1)
             ));
         }
 

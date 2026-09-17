@@ -5,6 +5,7 @@ import io.javalin.http.Context;
 import io.javalin.http.Handler;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.binary.exceptions.UnsupportedEncodingStrategyException;
+import org.stvnadore.core.utils.StvnStringCapacityUtils;
 import org.stvnadore.core.validation.MalformedPayloadException;
 import org.stvnadore.repository.SimpleSchemaRepositoryEngine;
 import org.stvnadore.repository.domain.PublishRequest;
@@ -90,6 +91,16 @@ public class SchemaPublishHandler implements Handler {
 
         String schemaName = ctx.pathParam("name");
         String sourceText = ctx.body();
+
+        if (sourceText.length() > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
+            ctx.status(422);
+            ctx.json(Map.of(
+                "error", "Capacity Overflow",
+                "message", "Payload exceeds maximum allowed string capacity: " + StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + " characters"
+            ));
+            return;
+        }
+
         PublishRequest request = new PublishRequest(schemaName, sourceText);
         PublishResult result = engine.publish(request);
         processPublishResult(ctx, result);
@@ -108,6 +119,15 @@ public class SchemaPublishHandler implements Handler {
         if (binaryBytes == null || binaryBytes.length == 0) {
             ctx.status(400);
             ctx.json(Map.of("error", "Bad Request", "message", "Binary payload cannot be empty"));
+            return;
+        }
+
+        if (binaryBytes.length > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
+            ctx.status(422);
+            ctx.json(Map.of(
+                "error", "Capacity Overflow",
+                "message", "Binary payload exceeds maximum allowed capacity: " + StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + " bytes"
+            ));
             return;
         }
 

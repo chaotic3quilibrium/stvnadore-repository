@@ -1,0 +1,230 @@
+package org.stvnadore.repository.integration;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
+import io.javalin.Javalin;
+import org.jspecify.annotations.NullMarked;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.stvnadore.core.StvnSchemaFlattener;
+import org.stvnadore.core.utils.StvnStringCapacityUtils;
+import org.stvnadore.repository.SimpleSchemaRepositoryEngine;
+import org.stvnadore.repository.edge.SchemaPublishHandler;
+import org.stvnadore.repository.infrastructure.ConcurrentHashMapCache;
+import org.stvnadore.repository.infrastructure.DatabaseInitializer;
+import org.stvnadore.repository.infrastructure.FileSystemCasStorage;
+import org.stvnadore.repository.infrastructure.JdbcIndexRepository;
+import org.stvnadore.repository.ports.CasStoragePort;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Comparator;
+import java.util.HexFormat;
+import java.util.Map;
+import java.util.UUID;
+import java.util.stream.Stream;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * End-to-end integration test verifying core 1.3.0-SNAPSHOT alignment.
+ * Confirms strict zero-tab rejection, package FQNI desugaring, string capacity bounds,
+ * and CAS digest determinism across real H2 and physical CAS storage.
+ */
+@NullMarked
+public class StvnCoreV130AlignmentIntegrationTest {
+
+    private static Path tempCasRoot = Paths.get("target/temp_cas_v130");
+    private static Javalin app = Javalin.create();
+    private static int port;
+    private static HikariDataSource dataSource = new HikariDataSource();
+    private static CasStoragePort casStorage = new FileSystemCasStorage(tempCasRoot);
+    private static HttpClient httpClient = HttpClient.newHttpClient();
+
+    @BeforeAll
+    static void initAll() throws IOException {
+        tempCasRoot = Files.createTempDirectory("stvn_v130_cas_");
+        casStorage = new FileSystemCasStorage(tempCasRoot);
+
+        String dbName = "stvn_v130_" + UUID.randomUUID().toString().replace("-", "");
+        String jdbcUrl = "jdbc:h2:mem:" + dbName + ";MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DATABASE_TO_LOWER=TRUE";
+
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(jdbcUrl);
+        config.setMaximumPoolSize(5);
+        config.setMinimumIdle(1);
+
+        dataSource = new HikariDataSource(config);
+        DatabaseInitializer.initialize(dataSource, true);
+
+        var indexRepo = new JdbcIndexRepository(dataSource);
+        var catalogCache = new ConcurrentHashMapCache();
+        var engine = new SimpleSchemaRepositoryEngine(casStorage, indexRepo, catalogCache);
+        var handler = new SchemaPublishHandler(engine, casStorage);
+
+        app = Javalin.create(cfg -> cfg.http.maxRequestSize = 32_000_000L).start(0);
+        handler.configureRoutes(app);
+        port = app.port();
+        httpClient = HttpClient.newHttpClient();
+    }
+
+    @BeforeEach
+    void cleanCasRoot() throws IOException {
+        if (Files.exists(tempCasRoot)) {
+            try (Stream<Path> stream = Files.walk(tempCasRoot)) {
+                stream.filter(p -> !p.equals(tempCasRoot))
+                      .sorted(Comparator.reverseOrder())
+                      .forEach(p -> {
+                          try {
+                              Files.deleteIfExists(p);
+                          } catch (Exception ignored) {
+                          }
+                      });
+            }
+        }
+    }
+
+    @AfterAll
+    static void tearDownAll() throws IOException {
+        if (app != null) {
+            app.stop();
+        }
+        if (dataSource != null && !dataSource.isClosed()) {
+            dataSource.close();
+        }
+        if (tempCasRoot != null && Files.exists(tempCasRoot)) {
+            try (Stream<Path> stream = Files.walk(tempCasRoot)) {
+                stream.sorted(Comparator.reverseOrder()).forEach(p -> {
+                    try {
+                        Files.deleteIfExists(p);
+                    } catch (Exception ignored) {
+                    }
+                });
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("V130-ALIGN-01: Ingress strictly rejects raw horizontal tab characters with HTTP 422 ERR_TAB_CHARACTER_FORBIDDEN")
+    void testZeroTabRejectionAtHttpBoundary() throws Exception {
+        String tabbedSchema = "{\n\t:defs {\n\t\t:UserId :Uint64\n\t}\n}";
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/tabbed_account.stvn_inclf"))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(tabbedSchema))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_TAB_CHARACTER_FORBIDDEN"),
+            "Response body must report ERR_TAB_CHARACTER_FORBIDDEN diagnostic");
+    }
+
+    @Test
+    @DisplayName("V130-ALIGN-02: Package enclosure desugars to FQNI and derives deterministic SHA-256 CAS hash")
+    void testPackageEnclosureAndFqniExpansion() throws Exception, NoSuchAlgorithmException {
+        String schemaName = "CustomerDomain.stvn_inclf";
+        String schemaSource = "{\n  :defs {\n    :package :com/example/crm {\n      :CustomerId :Uint64\n      :CustomerName :StringNonEmpty\n    }\n  }\n}";
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + schemaName))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(schemaSource))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, response.statusCode());
+
+        // Derive expected canonical hash via StvnSchemaFlattener
+        String expectedShape = StvnSchemaFlattener.flatten(Map.of(schemaName, schemaSource), schemaName);
+        byte[] expectedHashBytes = MessageDigest.getInstance("SHA-256").digest(expectedShape.getBytes(StandardCharsets.UTF_8));
+        String expectedCasHash = HexFormat.of().formatHex(expectedHashBytes);
+
+        assertTrue(response.body().contains(expectedCasHash));
+        assertTrue(response.body().contains(":com/example/crm/CustomerId"));
+
+        // Verify physical file sharding on disk (2/62 layout)
+        Path shardedFile = tempCasRoot.resolve(expectedCasHash.substring(0, 2))
+                                     .resolve(expectedCasHash.substring(2) + ".stvn_cas");
+        assertTrue(Files.exists(shardedFile), "Physical CAS envelope must exist at 2/62 sharded path");
+    }
+
+    @Test
+    @DisplayName("V130-ALIGN-03: Modular flat include retains full exported package interface without dead-code pruning")
+    void testModularInclfRetainsExportedInterface() throws Exception {
+        String schemaName = "ModularExports.stvn_inclf";
+        // Library module defines an unused helper type alongside the primary type
+        String schemaSource = "{\n  :defs {\n    :PrimaryType :Uint64\n    :UnusedExportedHelper :String\n  }\n}";
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + schemaName))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(schemaSource))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, response.statusCode());
+
+        // Both exported definitions must be preserved in the shape signature
+        assertTrue(response.body().contains(":PrimaryType"));
+        assertTrue(response.body().contains(":UnusedExportedHelper"));
+    }
+
+    @Test
+    @DisplayName("V130-ALIGN-04: Ingress rejects payloads exceeding 16 MiB capacity bound with HTTP 422 ERR_CAPACITY_OVERFLOW")
+    void testCapacityOverflowRejection() throws Exception {
+        String oversized = "a".repeat(StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + 10);
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/oversized.stvn_inclf"))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(oversized))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_CAPACITY_OVERFLOW") || response.body().contains("Capacity Overflow"));
+    }
+
+    @Test
+    @DisplayName("V130-ALIGN-05: Raw schema retrieval via GET /api/v1/schemas/cas/{hash} returns unwrapped application/stvn")
+    void testRawCasPayloadRetrieval() throws Exception, NoSuchAlgorithmException {
+        String schemaName = "RetrievalTest.stvn_inclf";
+        String schemaSource = "{\n  :defs {\n    :TokenId :Uint32\n  }\n}";
+
+        HttpRequest publishReq = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + schemaName))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(schemaSource))
+            .build();
+
+        HttpResponse<String> publishRes = httpClient.send(publishReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, publishRes.statusCode());
+
+        String shape = StvnSchemaFlattener.flatten(Map.of(schemaName, schemaSource), schemaName);
+        String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(shape.getBytes(StandardCharsets.UTF_8)));
+
+        HttpRequest getReq = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/cas/" + hash))
+            .header("Accept", "application/stvn")
+            .GET()
+            .build();
+
+        HttpResponse<String> getRes = httpClient.send(getReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, getRes.statusCode());
+        assertTrue(getRes.headers().firstValue("Content-Type").orElse("").contains("application/stvn"));
+        assertEquals(schemaSource.trim(), getRes.body().trim());
+    }
+}

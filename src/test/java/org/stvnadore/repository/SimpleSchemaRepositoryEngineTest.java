@@ -2,6 +2,7 @@ package org.stvnadore.repository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.stvnadore.core.utils.StvnStringCapacityUtils;
 import org.stvnadore.repository.domain.*;
 import org.stvnadore.repository.ports.CasStoragePort;
 import org.stvnadore.repository.ports.IndexRepositoryPort;
@@ -186,5 +187,45 @@ public class SimpleSchemaRepositoryEngineTest {
         assertNotNull(deferred.metadata().casHash());
 
         verify(casStoragePort).write(eq(deferred.metadata().casHash()), any(byte[].class));
+    }
+
+    @Test
+    public void testPublishRejectsRawTabCharacter() {
+        String sourceWithTab = "{\n\t:defs {\n\t\t:UserId :Uint64\n\t}\n}";
+        PublishRequest request = new PublishRequest("user-tab.stvn_inclf", sourceWithTab);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().stream().anyMatch(d -> d.message().contains("ERR_TAB_CHARACTER_FORBIDDEN")),
+            "Diagnostic must explicitly report ERR_TAB_CHARACTER_FORBIDDEN");
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
+
+    @Test
+    public void testPublishRejectsPayloadExceedingCapacityBound() {
+        String largePayload = "a".repeat(StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + 1);
+        PublishRequest request = new PublishRequest("overflow.stvn_inclf", largePayload);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_CAPACITY_OVERFLOW"));
+        verifyNoInteractions(casStoragePort);
+    }
+
+    @Test
+    public void testPublishBinaryRejectsPayloadExceedingCapacityBound() {
+        byte[] oversizedBytes = new byte[StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + 1];
+        PublishRequest request = new PublishRequest("overflow.stvn_bin", oversizedBytes);
+
+        PublishResult result = engine.publishBinary(request, mock(org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer.class));
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_CAPACITY_OVERFLOW"));
     }
 }

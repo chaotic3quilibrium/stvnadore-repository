@@ -2,21 +2,22 @@
 
 **Document ID**: STVN-SPEC-REPO-02  
 **Status**: Canonical Specification  
-**Version**: 1.2.0  
+**Version**: 1.3.0-SNAPSHOT  
 **Compliance**: Mandatory for all STVN ecosystem server and repository implementations.  
 
 ---
 
-# Table of Contents <!-- omit in toc -->
+**Table of Contents**
 
 <!-- TOC -->
 * [STVN Architectural Specification: Zero-Trust Ingress Verification, Byte 4 Wire Governance, and Enum Subset CAS Invariants](#stvn-architectural-specification-zero-trust-ingress-verification-byte-4-wire-governance-and-enum-subset-cas-invariants)
-* [Table of Contents <!-- omit in toc -->](#table-of-contents----omit-in-toc---)
   * [1. Architectural Purpose & Scope](#1-architectural-purpose--scope)
   * [2. Double-Gate Ingress Boundary for Flat Schemas (.stvn_inclf)](#2-double-gate-ingress-boundary-for-flat-schemas-stvn_inclf)
-    * [2.1 Gate 1: Filename Hygiene](#21-gate-1-filename-hygiene)
-    * [2.2 Gate 2: AST Structure Invariants](#22-gate-2-ast-structure-invariants)
-    * [2.3 Headless Compilation & Canonical Flattening](#23-headless-compilation--canonical-flattening)
+    * [2.1 Perimeter Capacity Bound](#21-perimeter-capacity-bound)
+    * [2.2 Gate 1: Filename Hygiene](#22-gate-1-filename-hygiene)
+    * [2.3 Headless Semantic Compilation & Zero-Tab Invariant](#23-headless-semantic-compilation--zero-tab-invariant)
+    * [2.4 Gate 2: AST Structure Invariants](#24-gate-2-ast-structure-invariants)
+    * [2.5 Canonical Flattening & Exported Interface Retention](#25-canonical-flattening--exported-interface-retention)
   * [3. Zero-Trust Ingress Verification & Byte 4 Wire Governance](#3-zero-trust-ingress-verification--byte-4-wire-governance)
     * [3.1 Wire Framing Specification](#31-wire-framing-specification)
     * [3.2 Byte 4 Control Byte Bitfield Layout](#32-byte-4-control-byte-bitfield-layout)
@@ -37,32 +38,44 @@
 
 ## 1. Architectural Purpose & Scope
 
-This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.2.0`.
+This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.3.0-SNAPSHOT`.
 
-The server enforces three core perimeter invariants:
-1. **Double-Gate Textual Ingress Boundary:** Enforces filename hygiene (`.stvn_inclf`), AST structural invariants (strictly `:defs`, zero `:include`, zero `:type`, zero `:body`), and headless semantic compilation prior to CAS commitment.
-2. **Zero-Trust Binary Ingress Boundary:** Corrupted frames, tampered checksums, truncated buffers, and unauthorized strategy extensions are intercepted at the network edge and rejected prior to disk persistence.
-3. **Enum Subset Cryptographic Isolation:** Nominal enum subsets (`#filterIncl`, `#filterExcl`) derive distinct SHA-256 CAS addresses from canonical flattened shape signatures, preventing storage overwrites and catalog collisions.
+The server enforces four core perimeter invariants:
+1. **Perimeter Payload Capacity Bound:** Enforces strict 16 MiB limits (`DEFAULT_UNBOUNDED_STRING_CAPACITY`) on both text schemas and binary streams before parsing.
+2. **Double-Gate Textual Ingress Boundary:** Enforces filename hygiene (`.stvn_inclf`), semantic compilation with zero raw tabs (`ERR_TAB_CHARACTER_FORBIDDEN`), and AST structural invariants (strictly `:defs`, zero `:include`, zero `:type`, zero `:body`) prior to CAS commitment.
+3. **Zero-Trust Binary Ingress Boundary:** Corrupted frames, tampered checksums, truncated buffers, and unauthorized strategy extensions are intercepted at the network edge and rejected prior to disk persistence.
+4. **Enum Subset Cryptographic Isolation:** Nominal enum subsets (`#filterIncl`, `#filterExcl`) derive distinct SHA-256 CAS addresses from canonical flattened shape signatures, preventing storage overwrites and catalog collisions.
 
 ---
 
 ## 2. Double-Gate Ingress Boundary for Flat Schemas (.stvn_inclf)
 
-### 2.1 Gate 1: Filename Hygiene
+### 2.1 Perimeter Capacity Bound
+Every inbound schema payload (text or binary) must not exceed the centralized capacity bound:
+* The engine asserts payload size $\le$ `StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY` (16 MiB = 16,777,216 bytes).
+* Overflows reject immediately with HTTP 422 (`ERR_CAPACITY_OVERFLOW`).
+
+### 2.2 Gate 1: Filename Hygiene
 Every text schema submitted to `/api/v1/schemas/{name}` must carry the `.stvn_inclf` extension:
 * The engine asserts `schemaName.endsWith(".stvn_inclf")`.
-* Filenames violating this rule are rejected immediately with HTTP 422 (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+* Filenames violating this rule reject immediately with HTTP 422 (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
 
-### 2.2 Gate 2: AST Structure Invariants
+### 2.3 Headless Semantic Compilation & Zero-Tab Invariant
+The engine compiles incoming source text before executing manual AST structure checks:
+* The engine calls `StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT)`.
+* Raw horizontal tab characters (`\t`, `U+0009`) fail compilation and produce diagnostic code `ERR_TAB_CHARACTER_FORBIDDEN`.
+* This ordering prevents AST recovery from masking tab and syntax diagnostics.
+
+### 2.4 Gate 2: AST Structure Invariants
 Flat schema leaf modules stored in CAS must maintain strict structural cleanliness:
 1. The root document context must contain strictly a `:defs` section.
 2. Top-level `:type` sections are prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
 3. Top-level `:body` sections are prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
 4. Embedded `:include` directives are strictly prohibited in flat schemas (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
 
-### 2.3 Headless Compilation & Canonical Flattening
-* **Headless Validation:** Schemas are compiled via `StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT)` without requiring a document body.
+### 2.5 Canonical Flattening & Exported Interface Retention
 * **Canonical Flattening:** `StvnSchemaFlattener.flatten(Map.of(schemaName, sourceText), schemaName)` unpacks `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), applies unary `#strip`, and canonicalizes definitions.
+* **Exported Interface Retention:** Flat include schemas (`.stvn_inclf`) lack a root `:type` seed; therefore, `StvnCanonicalDefinitionsResolver` retains all exported interface definitions without dead-code elimination.
 * **Deterministic CAS Addressing:** The 64-character CAS hash is computed by applying SHA-256 to the UTF-8 bytes of the flattened shape signature:
   $$\text{CAS Hash} = \text{SHA-256}(\text{shapeSignature.getBytes(StandardCharsets.UTF\_8)})$$
 
@@ -196,7 +209,7 @@ The server maps boundary and compilation events to HTTP status codes:
 | `404`       | Not Found              | Schema shape signature or CAS file hash does not exist.                                                        | Query miss                                                                               | Empty body                                                                              |
 | `409`       | Conflict               | Schema name exists with a different cryptographic hash. Mutations are prohibited.                              | `PublishResult.SchemaConflict`                                                           | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`               |
 | `415`       | Unsupported Media Type | Request `Content-Type` is null or not supported.                                                               | Media type guard                                                                         | `{"error": "Unsupported Media Type", "message": "..."}`                                 |
-| `422`       | Unprocessable Entity   | Gate 1/2 violation, compiler error, CRC-32C mismatch, buffer < 9 bytes, or strategy sentinel `0x7`.             | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
+| `422`       | Unprocessable Entity   | Payload > 16 MiB (`ERR_CAPACITY_OVERFLOW`), Gate 1/2 violation, compiler error (or raw tabs), CRC-32C mismatch, buffer < 9 bytes, or strategy sentinel `0x7`. | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
 | `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                      | `PublishResult.IdempotentCollision`                                                      | `SchemaMetadata` JSON object                                                            |
 | `201`       | Created                | New schema verified, persisted to CAS, and cataloged.                                                          | `PublishResult.Success`                                                                  | `SchemaMetadata` JSON object                                                            |
 | `202`       | Accepted               | CAS write succeeded; catalog indexing deferred to background sweeper.                                          | `PublishResult.IndexingDeferred`                                                         | `SchemaMetadata` JSON object                                                            |
@@ -206,7 +219,8 @@ The server maps boundary and compilation events to HTTP status codes:
 ## 7. Concurrency & Background Sweeper Invariants
 
 1. **Virtual Thread Execution:** Every HTTP request executes on an unpinned Java 21 Virtual Thread. Calculations for `CRC32C` and `MessageDigest` allocate state on the stack, preventing thread pinning.
-2. **Zero-Trust Disk Isolation:** A payload that fails CRC-32C validation, carries strategy `0x7`, or violates Gate 1 or Gate 2 never touches the filesystem. The handler rejects the request before invoking `FileSystemCasStorage`.
-3. **Relational Sweeper Quarantine:** If a physical file in the CAS directory suffers bit corruption, invalid filenames, or illegal includes, the `RelationalProjectionSweeper` atomically relocates it to:
+2. **Zero-Trust Disk Isolation:** A payload that exceeds 16 MiB (`ERR_CAPACITY_OVERFLOW`), fails CRC-32C validation, carries strategy `0x7`, or violates Gate 1 or Gate 2 never touches the filesystem. The handler rejects the request before invoking `FileSystemCasStorage`.
+3. **Relational Sweeper Quarantine:** If a physical file in the CAS directory suffers bit corruption, invalid filenames, illegal includes, or forbidden raw tabs, the `RelationalProjectionSweeper` atomically relocates it to:
    `data/cas/.quarantine/<filename>.<timestamp>.<REASON>.quarantine`
+   The sweeper executes `StvnCompiler.compileToResult(STRICT)` before inspecting AST structure. This guarantees that raw horizontal tabs and upstream compilation failures quarantine under `INVALID_INNER_AST`, while illegal includes quarantine under `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA`.
    Supported reasons include: `EMPTY_PAYLOAD`, `CORRUPT_ENVELOPE`, `INVALID_FILENAME_EXTENSION`, `MALFORMED_INNER_STRUCTURE`, `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA`, `INVALID_INNER_AST`, `FLATTENING_ERROR`, and `HASH_MISMATCH`.
