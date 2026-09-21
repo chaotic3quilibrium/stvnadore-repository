@@ -14,7 +14,7 @@ public class StvnCasPackagerTest {
     public void testPackageEnvelopeCorrectStructureAndParsing() {
         String schemaName = "user-profile.stvn_inclf";
         String casHash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
-        String sourceText = "{\n  :defs {\n    :UserId :Uint64\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
 
         // Package the envelope
         String envelope = StvnCasPackager.packageEnvelope(schemaName, casHash, sourceText);
@@ -22,7 +22,7 @@ public class StvnCasPackagerTest {
         // Verify it contains the required headers and markers
         assertTrue(envelope.contains(":defs {"));
         assertTrue(envelope.contains(":SchemaName :String"));
-        assertTrue(envelope.contains(":StvnInclf {#preserveIndent #T} :String"));
+        assertTrue(envelope.contains(":StvnInclf { #preserveIndent } :String"));
         assertTrue(envelope.contains(":type :Tuple(:SchemaName :StvnInclf)"));
         assertTrue(envelope.contains(":body ("));
         assertTrue(envelope.contains("\"user-profile.stvn_inclf\""));
@@ -54,7 +54,7 @@ public class StvnCasPackagerTest {
     public void testUnpackEnvelopeSuccess() {
         String schemaName = "order-events.stvn_inclf";
         String casHash = "cafebabedeadbeef0123456789abcdefcafebabedeadbeef0123456789abcdef";
-        String sourceText = "{\n  :defs {\n    :OrderId :Uint64\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :OrderId { #unsigned #size 64 } :Int\n  }\n}";
 
         String envelope = StvnCasPackager.packageEnvelope(schemaName, casHash, sourceText);
 

@@ -27,7 +27,7 @@ public class StvnCasPackager {
         return "{\n" +
                "  :defs {\n" +
                "    :SchemaName :String\n" +
-               "    :StvnInclf {#preserveIndent #T} :String\n" +
+               "    :StvnInclf { #preserveIndent } :String\n" +
                "  }\n" +
                "  :type :Tuple(:SchemaName :StvnInclf)\n" +
                "  :body (\n" +
@@ -47,13 +47,18 @@ public class StvnCasPackager {
      */
     public static Optional<String> unpackSourceText(String envelopeText) {
         try {
+            var res = StvnCompiler.compileToResult(envelopeText, null, org.stvnadore.core.StvnParserConfig.STRICT);
+            if (res.hasErrors()) {
+                System.err.println("DIAGNOSTICS: " + res.diagnostics());
+            }
             Optional<StvnValue> compiled = StvnCompiler.compile(envelopeText);
             if (compiled.isPresent() && compiled.get() instanceof StvnValue.StvnTuple tuple) {
                 if (tuple.elements().size() >= 2 && tuple.elements().get(1) instanceof StvnValue.StvnString sourceVal) {
                     return Optional.of(sourceVal.value().trim());
                 }
             }
-        } catch (Exception ignored) {
+        } catch (Exception e) {
+            System.err.println("EXCEPTION: " + e);
         }
         return Optional.empty();
     }

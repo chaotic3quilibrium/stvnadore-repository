@@ -117,4 +117,24 @@ public class JdbcIndexRepositoryTest {
         Optional<SchemaMetadata> result = repository.findBySchemaName("unknown");
         assertTrue(result.isEmpty());
     }
+
+    @Test
+    public void testFindByCasHashExistingReturnsMetadata() {
+        String schemaName = "cas-hash-test";
+        String shapeSig = "{ :defs { :Foo :String } }";
+        String casHash = "4444444444444444444444444444444444444444444444444444444444444444";
+        SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSig, casHash);
+
+        repository.save(metadata, "test source");
+
+        Optional<SchemaMetadata> found = repository.findByCasHash(casHash);
+        assertTrue(found.isPresent());
+        assertEquals(metadata, found.get());
+    }
+
+    @Test
+    public void testFindByCasHashNonExistentReturnsEmpty() {
+        Optional<SchemaMetadata> result = repository.findByCasHash("5555555555555555555555555555555555555555555555555555555555555555");
+        assertTrue(result.isEmpty());
+    }
 }

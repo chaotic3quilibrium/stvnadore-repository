@@ -30,7 +30,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishSuccess() {
-        String sourceText = "{\n  :defs {\n    :UserId :Uint64\n    :UserName :StringNonEmpty\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n    :UserName { #minSize 1 } :String\n  }\n}";
         PublishRequest request = new PublishRequest("user-profile.stvn_inclf", sourceText);
         when(indexRepositoryPort.findBySchemaName("user-profile.stvn_inclf")).thenReturn(Optional.empty());
 
@@ -51,7 +51,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishRejectsNonStvnInclfFilename() {
-        String sourceText = "{\n  :defs {\n    :UserId :Uint64\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
         PublishRequest request = new PublishRequest("user-profile.stvn", sourceText);
 
         PublishResult result = engine.publish(request);
@@ -65,7 +65,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishRejectsSchemaContainingIncludes() {
-        String sourceText = "{\n  :defs {\n    :include [ \"other.stvn_inclf\" ]\n    :UserId :Uint64\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :include [ \"other.stvn_inclf\" ]\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
         PublishRequest request = new PublishRequest("invalid-include.stvn_inclf", sourceText);
 
         PublishResult result = engine.publish(request);
@@ -79,7 +79,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishRejectsSchemaContainingBodyOrType() {
-        String sourceText = "{\n  :defs {\n    :UserId :Uint64\n  }\n  :type :UserId\n  :body 100\n}";
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n  :type :UserId\n  :body 100\n}";
         PublishRequest request = new PublishRequest("invalid-body.stvn_inclf", sourceText);
 
         PublishResult result = engine.publish(request);
@@ -92,7 +92,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishPackageEnclosureAndFqniExpansion() {
-        String sourceText = "{\n  :defs {\n    :package :org/example {\n      :UserId :Uint64\n    }\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :package :org/example {\n      :UserId { #unsigned #size 64 } :Int\n    }\n  }\n}";
         PublishRequest request = new PublishRequest("packaged.stvn_inclf", sourceText);
         when(indexRepositoryPort.findBySchemaName("packaged.stvn_inclf")).thenReturn(Optional.empty());
 
@@ -107,7 +107,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishMutationConflictReturnsSchemaConflict() {
-        String sourceText = "{\n  :defs {\n    :UserId :Uint64\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
         PublishRequest request = new PublishRequest("user.stvn_inclf", sourceText);
         SchemaMetadata existing = new SchemaMetadata("user.stvn_inclf", "existingSig", "differentHash11111111111111111111111111111111111111111111111111111111");
         when(indexRepositoryPort.findBySchemaName("user.stvn_inclf")).thenReturn(Optional.of(existing));
@@ -126,7 +126,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishIdempotentCollision() {
-        String sourceText = "{\n  :defs {\n    :UserId :Uint64\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
         PublishRequest request = new PublishRequest("user.stvn_inclf", sourceText);
 
         // First compile to get actual hash
@@ -141,6 +141,108 @@ public class SimpleSchemaRepositoryEngineTest {
         PublishResult second = engine.publish(request);
         assertInstanceOf(PublishResult.IdempotentCollision.class, second);
         PublishResult.IdempotentCollision collision = (PublishResult.IdempotentCollision) second;
+        assertEquals(actualHash, collision.metadata().casHash());
+    }
+
+    @Test
+    public void testPublishAliasConflictReturnsAliasConflict() {
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("alias-user.stvn_inclf", sourceText);
+
+        // Pre-determine hash by running publish once against pristine mock
+        PublishResult probe = engine.publish(request);
+        assertInstanceOf(PublishResult.Success.class, probe);
+        String actualHash = ((PublishResult.Success) probe).metadata().casHash();
+
+        // Reset mocks to test alias conflict pre-check branch
+        reset(casStoragePort, indexRepositoryPort, versionCatalogCache);
+        when(indexRepositoryPort.findBySchemaName("alias-user.stvn_inclf")).thenReturn(Optional.empty());
+        when(indexRepositoryPort.findByCasHash(actualHash)).thenReturn(
+            Optional.of(new SchemaMetadata("canonical-user.stvn_inclf", "sig", actualHash))
+        );
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.AliasConflict.class, result);
+        PublishResult.AliasConflict aliasConflict = (PublishResult.AliasConflict) result;
+        assertEquals("alias-user.stvn_inclf", aliasConflict.submittedSchemaName());
+        assertEquals("canonical-user.stvn_inclf", aliasConflict.existingSchemaName());
+        assertEquals(actualHash, aliasConflict.casHash());
+
+        verifyNoInteractions(casStoragePort);
+        verify(indexRepositoryPort, never()).save(any(SchemaMetadata.class), anyString());
+    }
+
+    @Test
+    public void testPublishConcurrentRaceAliasConflictFallback() {
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("race-alias.stvn_inclf", sourceText);
+
+        PublishResult probe = engine.publish(new PublishRequest("probe.stvn_inclf", sourceText));
+        String actualHash = ((PublishResult.Success) probe).metadata().casHash();
+
+        reset(casStoragePort, indexRepositoryPort, versionCatalogCache);
+        when(indexRepositoryPort.findBySchemaName("race-alias.stvn_inclf")).thenReturn(Optional.empty());
+        when(indexRepositoryPort.findByCasHash(actualHash))
+            .thenReturn(Optional.empty()) // first check before save
+            .thenReturn(Optional.of(new SchemaMetadata("winner.stvn_inclf", "sig", actualHash))); // catch block check
+        doThrow(new DuplicateIndexException("uq_version_catalog_cas_hash"))
+            .when(indexRepositoryPort).save(any(SchemaMetadata.class), eq(sourceText));
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.AliasConflict.class, result);
+        PublishResult.AliasConflict conflict = (PublishResult.AliasConflict) result;
+        assertEquals("race-alias.stvn_inclf", conflict.submittedSchemaName());
+        assertEquals("winner.stvn_inclf", conflict.existingSchemaName());
+        assertEquals(actualHash, conflict.casHash());
+    }
+
+    @Test
+    public void testPublishConcurrentRaceSchemaConflictFallback() {
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("race-schema.stvn_inclf", sourceText);
+
+        PublishResult probe = engine.publish(new PublishRequest("probe.stvn_inclf", sourceText));
+        String actualHash = ((PublishResult.Success) probe).metadata().casHash();
+
+        reset(casStoragePort, indexRepositoryPort, versionCatalogCache);
+        when(indexRepositoryPort.findBySchemaName("race-schema.stvn_inclf"))
+            .thenReturn(Optional.empty()) // first check
+            .thenReturn(Optional.of(new SchemaMetadata("race-schema.stvn_inclf", "sig", "concurrentOtherHash111111111111111111111111111111111111111111111111"))); // catch block check
+        when(indexRepositoryPort.findByCasHash(actualHash)).thenReturn(Optional.empty());
+        doThrow(new DuplicateIndexException("uq_version_catalog_schema_name"))
+            .when(indexRepositoryPort).save(any(SchemaMetadata.class), eq(sourceText));
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.SchemaConflict.class, result);
+        PublishResult.SchemaConflict conflict = (PublishResult.SchemaConflict) result;
+        assertEquals("race-schema.stvn_inclf", conflict.schemaName());
+        assertEquals("concurrentOtherHash111111111111111111111111111111111111111111111111", conflict.existingHash());
+        assertEquals(actualHash, conflict.submittedHash());
+    }
+
+    @Test
+    public void testPublishConcurrentRaceIdempotentCollisionFallback() {
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("race-idemp.stvn_inclf", sourceText);
+
+        PublishResult probe = engine.publish(new PublishRequest("probe.stvn_inclf", sourceText));
+        String actualHash = ((PublishResult.Success) probe).metadata().casHash();
+
+        reset(casStoragePort, indexRepositoryPort, versionCatalogCache);
+        when(indexRepositoryPort.findBySchemaName("race-idemp.stvn_inclf"))
+            .thenReturn(Optional.empty()) // first check
+            .thenReturn(Optional.of(new SchemaMetadata("race-idemp.stvn_inclf", "sig", actualHash))); // catch block check
+        when(indexRepositoryPort.findByCasHash(actualHash)).thenReturn(Optional.empty());
+        doThrow(new DuplicateIndexException("uq_version_catalog_schema_name"))
+            .when(indexRepositoryPort).save(any(SchemaMetadata.class), eq(sourceText));
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.IdempotentCollision.class, result);
+        PublishResult.IdempotentCollision collision = (PublishResult.IdempotentCollision) result;
         assertEquals(actualHash, collision.metadata().casHash());
     }
 
@@ -160,7 +262,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishValidationErrorSyntax() {
-        PublishRequest request = new PublishRequest("user.stvn_inclf", "{ :defs { :UserId :Uint64");
+        PublishRequest request = new PublishRequest("user.stvn_inclf", "{ :defs { :UserId { #unsigned #size 64 } :Int");
         PublishResult result = engine.publish(request);
 
         assertInstanceOf(PublishResult.ValidationError.class, result);
@@ -173,7 +275,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishIndexingDeferredOnDatabaseError() {
-        String sourceText = "{\n  :defs {\n    :UserId :Uint64\n  }\n}";
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
         PublishRequest request = new PublishRequest("user-profile.stvn_inclf", sourceText);
         when(indexRepositoryPort.findBySchemaName("user-profile.stvn_inclf")).thenReturn(Optional.empty());
 
@@ -191,7 +293,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishRejectsRawTabCharacter() {
-        String sourceWithTab = "{\n\t:defs {\n\t\t:UserId :Uint64\n\t}\n}";
+        String sourceWithTab = "{\n\t:defs {\n\t\t:UserId { #unsigned #size 64 } :Int\n\t}\n}";
         PublishRequest request = new PublishRequest("user-tab.stvn_inclf", sourceWithTab);
 
         PublishResult result = engine.publish(request);

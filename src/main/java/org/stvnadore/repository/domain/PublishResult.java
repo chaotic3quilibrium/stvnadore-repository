@@ -27,6 +27,14 @@ public sealed interface PublishResult {
    */
   record SchemaConflict(String schemaName, String existingHash, String submittedHash) implements PublishResult {}
   /**
+   * Indicates that the submitted content hash already exists under a different schema name (1:1 law violation).
+   *
+   * @param submittedSchemaName the schema name submitted by the author
+   * @param existingSchemaName the existing schema name claiming this CAS hash
+   * @param casHash the conflicting content hash
+   */
+  record AliasConflict(String submittedSchemaName, String existingSchemaName, String casHash) implements PublishResult {}
+  /**
    * Indicates that the schema failed syntactic or semantic validation.
    *
    * @param diagnostics compiler diagnostics describing the errors

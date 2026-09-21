@@ -166,6 +166,13 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             }
         }
 
+        // 4.1 Check for nominal alias collision (Nominal Bijectivity Invariant 1:1 Law)
+        Optional<SchemaMetadata> existingByHash = indexRepositoryPort.findByCasHash(casHash);
+        if (existingByHash.isPresent()) {
+            SchemaMetadata existing = existingByHash.get();
+            return new PublishResult.AliasConflict(schemaName, existing.schemaName(), casHash);
+        }
+
         // 5. Package envelope using source text
         String envelopeText = StvnCasPackager.packageEnvelope(schemaName, casHash, sourceText);
         byte[] envelopeBytes = envelopeText.getBytes(StandardCharsets.UTF_8);
@@ -183,7 +190,18 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             versionCatalogCache.put(metadata);
             return new PublishResult.Success(metadata);
         } catch (DuplicateIndexException e) {
-            return new PublishResult.IdempotentCollision(metadata);
+            // Concurrent race fallback: inspect database to resolve whether collision was idempotent, mutation, or alias
+            Optional<SchemaMetadata> concurrentOpt = indexRepositoryPort.findBySchemaName(schemaName);
+            if (concurrentOpt.isPresent()) {
+                if (concurrentOpt.get().casHash().equalsIgnoreCase(casHash)) {
+                    return new PublishResult.IdempotentCollision(metadata);
+                } else {
+                    return new PublishResult.SchemaConflict(schemaName, concurrentOpt.get().casHash(), casHash);
+                }
+            }
+            Optional<SchemaMetadata> hashOpt = indexRepositoryPort.findByCasHash(casHash);
+            String existingName = hashOpt.map(SchemaMetadata::schemaName).orElse("unknown");
+            return new PublishResult.AliasConflict(schemaName, existingName, casHash);
         } catch (Exception e) {
             return new PublishResult.IndexingDeferred(metadata);
         }
@@ -245,6 +263,13 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             }
         }
 
+        // Check for nominal alias collision (Nominal Bijectivity Invariant 1:1 Law)
+        Optional<SchemaMetadata> existingByHash = indexRepositoryPort.findByCasHash(casHash);
+        if (existingByHash.isPresent()) {
+            SchemaMetadata existing = existingByHash.get();
+            return new PublishResult.AliasConflict(schemaName, existing.schemaName(), casHash);
+        }
+
         // Write binary payload to CAS Storage
         try {
             casStoragePort.write(casHash, binaryPayload);
@@ -258,7 +283,18 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             versionCatalogCache.put(metadata);
             return new PublishResult.Success(metadata);
         } catch (DuplicateIndexException e) {
-            return new PublishResult.IdempotentCollision(metadata);
+            // Concurrent race fallback: inspect database to resolve whether collision was idempotent, mutation, or alias
+            Optional<SchemaMetadata> concurrentOpt = indexRepositoryPort.findBySchemaName(schemaName);
+            if (concurrentOpt.isPresent()) {
+                if (concurrentOpt.get().casHash().equalsIgnoreCase(casHash)) {
+                    return new PublishResult.IdempotentCollision(metadata);
+                } else {
+                    return new PublishResult.SchemaConflict(schemaName, concurrentOpt.get().casHash(), casHash);
+                }
+            }
+            Optional<SchemaMetadata> hashOpt = indexRepositoryPort.findByCasHash(casHash);
+            String existingName = hashOpt.map(SchemaMetadata::schemaName).orElse("unknown");
+            return new PublishResult.AliasConflict(schemaName, existingName, casHash);
         } catch (Exception e) {
             return new PublishResult.IndexingDeferred(metadata);
         }

@@ -52,4 +52,12 @@ public interface IndexRepositoryPort {
      * @return Optional containing SchemaMetadata if found, empty otherwise
      */
     Optional<SchemaMetadata> findBySchemaName(String schemaName);
+
+    /**
+     * Looks up schema metadata by 64-character cryptographic CAS hash.
+     *
+     * @param casHash the 64-character hex hash
+     * @return Optional containing SchemaMetadata if found, empty otherwise
+     */
+    Optional<SchemaMetadata> findByCasHash(String casHash);
 }

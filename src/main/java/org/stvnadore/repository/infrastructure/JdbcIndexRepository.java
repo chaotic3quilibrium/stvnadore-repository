@@ -117,4 +117,25 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
             throw new RuntimeException("Database error finding schema by name: " + schemaName, e);
         }
     }
+
+    @Override
+    public Optional<SchemaMetadata> findByCasHash(String casHash) {
+        String sql = "SELECT schema_name, shape_signature, cas_hash FROM version_catalog WHERE cas_hash = ?";
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, casHash);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(new SchemaMetadata(
+                        rs.getString("schema_name"),
+                        rs.getString("shape_signature"),
+                        rs.getString("cas_hash")
+                    ));
+                }
+                return Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Database error finding schema by hash: " + casHash, e);
+        }
+    }
 }

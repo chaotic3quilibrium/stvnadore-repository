@@ -13,6 +13,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Map;
 
 import static org.mockito.Mockito.*;
 
@@ -91,6 +92,26 @@ public class SchemaPublishHandlerTest {
         handler.handle(ctx);
 
         verify(ctx).status(409);
+    }
+
+    @Test
+    public void testPublishAliasConflictReturns409() throws Exception {
+        String name = "alias-schema.stvn_inclf";
+        String body = "schema { field1: String }";
+        PublishResult result = new PublishResult.AliasConflict(name, "existing-schema.stvn_inclf", "casHash123");
+
+        when(ctx.contentType()).thenReturn("application/stvn");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.body()).thenReturn(body);
+        when(engine.publish(new PublishRequest(name, body))).thenReturn(result);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(409);
+        verify(ctx).json(Map.of(
+            "error", "Conflict",
+            "message", "CAS hash 'casHash123' is already registered under schema 'existing-schema.stvn_inclf'. Cannot register duplicate content as 'alias-schema.stvn_inclf'."
+        ));
     }
 
     @Test

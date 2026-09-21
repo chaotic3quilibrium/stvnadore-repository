@@ -178,6 +178,13 @@ public class SchemaPublishHandler implements Handler {
                     "message", "Schema name '" + name + "' already exists with hash " + existingHash + ". Mutations are prohibited."
                 ));
             }
+            case PublishResult.AliasConflict(var submitted, var existing, var hash) -> {
+                ctx.status(409);
+                ctx.json(Map.of(
+                    "error", "Conflict",
+                    "message", "CAS hash '" + hash + "' is already registered under schema '" + existing + "'. Cannot register duplicate content as '" + submitted + "'."
+                ));
+            }
             case PublishResult.ValidationError(var diagnostics) -> {
                 ctx.status(422);
                 ctx.json(diagnostics);

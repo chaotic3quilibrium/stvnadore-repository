@@ -1,6 +1,6 @@
 {
   :defs {
-    :RecordId :Uint64
-    :PayloadText :StringNonEmpty
+    :RecordId { #unsigned #size 64 } :Int
+    :PayloadText { #minSize 1 } :String
   }
 }

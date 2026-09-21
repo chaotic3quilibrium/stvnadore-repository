@@ -1,7 +1,7 @@
 {
   :defs {
     :package :org/stvnadore/sample {
-      :ServiceId :Uint32
+      :ServiceId { #unsigned #size 32 } :Int
       :ServiceName :String
     }
   }
