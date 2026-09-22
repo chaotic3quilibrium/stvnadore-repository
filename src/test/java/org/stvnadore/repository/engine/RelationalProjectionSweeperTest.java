@@ -227,4 +227,51 @@ public class RelationalProjectionSweeperTest {
         assertTrue(quarantinedFile.toString().contains("INVALID_INNER_AST"),
             "Quarantine tag must report INVALID_INNER_AST on raw tab characters");
     }
+
+    @Test
+    public void testSweeperReconcilesTemporalPrimitivesWithoutQuarantine() throws DuplicateIndexException, NoSuchAlgorithmException {
+        String schemaName = "temporal-reconciliation.stvn_inclf";
+        String innerSourceText = """
+            {
+              :defs {
+                :Timestamp { #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch
+                :EventTime { #offset #minIncl "2026-01-01T00:00:00Z" #maxExcl "2027-01-01T00:00:00Z" } :DateTime
+              }
+            }
+            """;
+
+        String shapeSig = StvnSchemaFlattener.flatten(Map.of(schemaName, innerSourceText), schemaName);
+        byte[] hashBytes = MessageDigest.getInstance("SHA-256").digest(shapeSig.getBytes(StandardCharsets.UTF_8));
+        String matchingHash = HexFormat.of().formatHex(hashBytes);
+
+        String envelope = StvnCasPackager.packageEnvelope(schemaName, matchingHash, innerSourceText);
+        casStorage.write(matchingHash, envelope.getBytes(StandardCharsets.UTF_8));
+
+        when(scanner.listAllCasHashes()).thenReturn(List.of(matchingHash));
+        when(indexRepository.existsByHash(matchingHash)).thenReturn(false);
+
+        sweeper.run();
+
+        verify(indexRepository).save(
+            argThat(metadata ->
+                metadata.schemaName().equals(schemaName) &&
+                metadata.casHash().equals(matchingHash) &&
+                metadata.shapeSignature().contains("{ #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch") &&
+                metadata.shapeSignature().contains("{ #offset #minIncl \"2026-01-01T00:00:00Z\" #maxExcl \"2027-01-01T00:00:00Z\" } :DateTime")
+            ),
+            eq(innerSourceText.trim())
+        );
+
+        Path quarantineDir = tempCasRoot.resolve(".quarantine");
+        assertTrue(!Files.exists(quarantineDir) || isDirEmpty(quarantineDir),
+            "Temporal schema must reconcile without false-positive quarantines");
+    }
+
+    private static boolean isDirEmpty(Path path) {
+        try (var stream = Files.list(path)) {
+            return stream.findAny().isEmpty();
+        } catch (IOException e) {
+            return true;
+        }
+    }
 }

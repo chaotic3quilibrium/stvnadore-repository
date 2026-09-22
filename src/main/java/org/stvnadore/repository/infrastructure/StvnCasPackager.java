@@ -47,18 +47,13 @@ public class StvnCasPackager {
      */
     public static Optional<String> unpackSourceText(String envelopeText) {
         try {
-            var res = StvnCompiler.compileToResult(envelopeText, null, org.stvnadore.core.StvnParserConfig.STRICT);
-            if (res.hasErrors()) {
-                System.err.println("DIAGNOSTICS: " + res.diagnostics());
-            }
             Optional<StvnValue> compiled = StvnCompiler.compile(envelopeText);
             if (compiled.isPresent() && compiled.get() instanceof StvnValue.StvnTuple tuple) {
                 if (tuple.elements().size() >= 2 && tuple.elements().get(1) instanceof StvnValue.StvnString sourceVal) {
                     return Optional.of(sourceVal.value().trim());
                 }
             }
-        } catch (Exception e) {
-            System.err.println("EXCEPTION: " + e);
+        } catch (Exception ignored) {
         }
         return Optional.empty();
     }

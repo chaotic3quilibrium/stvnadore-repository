@@ -376,4 +376,117 @@ public class StvnCoreV200AlignmentIntegrationTest {
         assertTrue(getRes.headers().firstValue("Content-Type").orElse("").contains("application/stvn"));
         assertEquals(schemaSource.trim(), getRes.body().trim());
     }
+
+    @Test
+    @DisplayName("V200-ALIGN-10: Pristine publication of temporal schema returns HTTP 201 Created and reflects 7-tier order")
+    void testTemporalSchemaPublication201CreatedAnd7TierOrder() throws Exception, NoSuchAlgorithmException {
+        String schemaName = "TemporalDomain.stvn_inclf";
+        String schemaSource = """
+            {
+              :defs {
+                :EventId :String
+                :EventTime { #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch
+                :AuditTime { #offset #minIncl "2026-01-01T00:00:00Z" #maxExcl "2027-01-01T00:00:00Z" } :DateTime
+              }
+            }
+            """;
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + schemaName))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(schemaSource))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, response.statusCode(), "Expected 201 Created but got " + response.statusCode() + ": " + response.body());
+
+        // Derive expected shape signature via StvnSchemaFlattener (enforces 7-tier Semantic Category Order)
+        String expectedShape = StvnSchemaFlattener.flatten(Map.of(schemaName, schemaSource), schemaName);
+        byte[] expectedHashBytes = MessageDigest.getInstance("SHA-256").digest(expectedShape.getBytes(StandardCharsets.UTF_8));
+        String expectedCasHash = HexFormat.of().formatHex(expectedHashBytes);
+
+        assertTrue(response.body().contains(expectedCasHash), "Response body must contain canonical CAS hash");
+
+        // Verify Tier 2 (#ms) precedes Tier 4 (#minIncl, #maxExcl)
+        assertTrue(expectedShape.contains("{ #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch"),
+            "Shape signature must order Tier 2 (temporal scale) before Tier 4 (intervals): " + expectedShape);
+
+        // Verify Tier 1 (#offset) precedes Tier 4 (#minIncl, #maxExcl)
+        assertTrue(expectedShape.contains("{ #offset #minIncl \"2026-01-01T00:00:00Z\" #maxExcl \"2027-01-01T00:00:00Z\" } :DateTime"),
+            "Shape signature must order Tier 1 (intrinsic mode) before Tier 4 (intervals): " + expectedShape);
+
+        // Verify physical file sharding on disk (2/62 layout)
+        Path shardedFile = tempCasRoot.resolve(expectedCasHash.substring(0, 2))
+                                     .resolve(expectedCasHash.substring(2) + ".stvn_cas");
+        assertTrue(Files.exists(shardedFile), "Physical CAS envelope must exist at 2/62 sharded path");
+    }
+
+    @Test
+    @DisplayName("V200-ALIGN-11: Ingress strictly rejects bare :TimeEpoch lacking scale flags with HTTP 422 ERR_MISSING_TEMPORAL_FACET")
+    void testBareTimeEpochRejection422() throws Exception {
+        String bareEpochSchema = """
+            {
+              :defs {
+                :CreatedTimestamp :TimeEpoch
+              }
+            }
+            """;
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/bare_epoch.stvn_inclf"))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(bareEpochSchema))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_MISSING_TEMPORAL_FACET"),
+            "Response body must report ERR_MISSING_TEMPORAL_FACET diagnostic: " + response.body());
+    }
+
+    @Test
+    @DisplayName("V200-ALIGN-12: Ingress strictly rejects closed bounds on :TimeEpoch with HTTP 422 ERR_DISCRETE_BOUND_KIND_PROHIBITED")
+    void testClosedBoundsOnTemporalRejection422() throws Exception {
+        String closedBoundSchema = """
+            {
+              :defs {
+                :BoundedEpoch { #ms #maxIncl 5000 } :TimeEpoch
+              }
+            }
+            """;
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/closed_bound_epoch.stvn_inclf"))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(closedBoundSchema))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_DISCRETE_BOUND_KIND_PROHIBITED"),
+            "Response body must report ERR_DISCRETE_BOUND_KIND_PROHIBITED diagnostic: " + response.body());
+    }
+
+    @Test
+    @DisplayName("V200-ALIGN-13: Ingress strictly rejects bare :DateTime lacking mode flag with HTTP 422 ERR_MISSING_TEMPORAL_FACET")
+    void testBareDateTimeRejection422() throws Exception {
+        String bareDateTimeSchema = """
+            {
+              :defs {
+                :MeetingTime :DateTime
+              }
+            }
+            """;
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/bare_datetime.stvn_inclf"))
+            .header("Content-Type", "application/stvn")
+            .POST(HttpRequest.BodyPublishers.ofString(bareDateTimeSchema))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_MISSING_TEMPORAL_FACET"),
+            "Response body must report ERR_MISSING_TEMPORAL_FACET diagnostic: " + response.body());
+    }
 }

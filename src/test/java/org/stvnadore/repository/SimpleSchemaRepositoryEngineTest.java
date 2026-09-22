@@ -330,4 +330,117 @@ public class SimpleSchemaRepositoryEngineTest {
         PublishResult.ValidationError error = (PublishResult.ValidationError) result;
         assertTrue(error.diagnostics().getFirst().message().contains("ERR_CAPACITY_OVERFLOW"));
     }
+
+    @Test
+    public void testPublishTemporalSchemaSuccess() {
+        String sourceText = """
+            {
+              :defs {
+                :Timestamp { #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch
+                :EventTime { #offset #minIncl "2026-01-01T00:00:00Z" #maxExcl "2027-01-01T00:00:00Z" } :DateTime
+              }
+            }
+            """;
+        PublishRequest request = new PublishRequest("temporal-schema.stvn_inclf", sourceText);
+        when(indexRepositoryPort.findBySchemaName("temporal-schema.stvn_inclf")).thenReturn(Optional.empty());
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.Success.class, result);
+        PublishResult.Success success = (PublishResult.Success) result;
+        SchemaMetadata metadata = success.metadata();
+
+        assertEquals("temporal-schema.stvn_inclf", metadata.schemaName());
+        assertNotNull(metadata.casHash());
+        assertTrue(metadata.shapeSignature().contains("{ #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch"));
+        assertTrue(metadata.shapeSignature().contains("{ #offset #minIncl \"2026-01-01T00:00:00Z\" #maxExcl \"2027-01-01T00:00:00Z\" } :DateTime"));
+
+        verify(casStoragePort).write(eq(metadata.casHash()), any(byte[].class));
+        verify(indexRepositoryPort).save(eq(metadata), eq(sourceText));
+        verify(versionCatalogCache).put(metadata);
+    }
+
+    @Test
+    public void testPublishRejectsBareTimeEpoch() {
+        String sourceText = """
+            {
+              :defs {
+                :Timestamp :TimeEpoch
+              }
+            }
+            """;
+        PublishRequest request = new PublishRequest("bare-epoch.stvn_inclf", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().stream().anyMatch(d -> d.message().contains("ERR_MISSING_TEMPORAL_FACET")),
+            "ValidationError must contain ERR_MISSING_TEMPORAL_FACET: " + error.diagnostics());
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
+
+    @Test
+    public void testPublishRejectsBareDateTime() {
+        String sourceText = """
+            {
+              :defs {
+                :Timestamp :DateTime
+              }
+            }
+            """;
+        PublishRequest request = new PublishRequest("bare-datetime.stvn_inclf", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().stream().anyMatch(d -> d.message().contains("ERR_MISSING_TEMPORAL_FACET")),
+            "ValidationError must contain ERR_MISSING_TEMPORAL_FACET: " + error.diagnostics());
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
+
+    @Test
+    public void testPublishRejectsClosedBoundsOnTimeEpoch() {
+        String sourceText = """
+            {
+              :defs {
+                :Timestamp { #s #maxIncl 1000 } :TimeEpoch
+              }
+            }
+            """;
+        PublishRequest request = new PublishRequest("closed-epoch.stvn_inclf", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().stream().anyMatch(d -> d.message().contains("ERR_DISCRETE_BOUND_KIND_PROHIBITED")),
+            "ValidationError must contain ERR_DISCRETE_BOUND_KIND_PROHIBITED: " + error.diagnostics());
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
+
+    @Test
+    public void testPublishRejectsClosedBoundsOnDateTime() {
+        String sourceText = """
+            {
+              :defs {
+                :Timestamp { #zoned #minExcl "2026-01-01T00:00:00Z[UTC]" } :DateTime
+              }
+            }
+            """;
+        PublishRequest request = new PublishRequest("closed-datetime.stvn_inclf", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().stream().anyMatch(d -> d.message().contains("ERR_DISCRETE_BOUND_KIND_PROHIBITED")),
+            "ValidationError must contain ERR_DISCRETE_BOUND_KIND_PROHIBITED: " + error.diagnostics());
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
 }

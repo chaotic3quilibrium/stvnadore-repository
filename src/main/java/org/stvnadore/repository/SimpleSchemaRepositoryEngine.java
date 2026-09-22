@@ -95,7 +95,13 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         StvnCompilationResult<StvnValue> compileResult = StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT);
         if (compileResult.hasErrors()) {
             List<CompileDiagnostic> compileDiagnostics = compileResult.diagnostics().stream()
-                .map(d -> new CompileDiagnostic(d.message(), d.line(), d.column()))
+                .map(d -> {
+                    String msg = d.message();
+                    if (d.errorCode().isPresent() && !msg.contains(d.errorCode().get())) {
+                        msg = d.errorCode().get() + ": " + msg;
+                    }
+                    return new CompileDiagnostic(msg, d.line(), d.column());
+                })
                 .toList();
             return new PublishResult.ValidationError(compileDiagnostics);
         }
