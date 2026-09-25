@@ -6,6 +6,7 @@ import org.stvnadore.core.StvnCompilationResult;
 import org.stvnadore.core.StvnCompiler;
 import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnSchemaFlattener;
+import org.stvnadore.core.binary.SchemaIdentityStrategy;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer;
 import org.stvnadore.core.binary.StvnSchemaHasher;
@@ -234,7 +235,11 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         String casHash;
         String shapeSignature;
 
-        if (root.schema().isPresent()) {
+        if (root.context().identityStrategy().isPresent() &&
+            root.context().identityStrategy().get() instanceof SchemaIdentityStrategy.ExplicitSha256 explicit) {
+            casHash = HexFormat.of().formatHex(explicit.hash());
+            shapeSignature = "binary:" + schemaName + ":" + root.context().encodingStrategy().name();
+        } else if (root.schema().isPresent()) {
             ResolvedSchema schema = root.schema().get();
             try {
                 byte[] hashBytes = StvnSchemaHasher.computeSha256(schema);

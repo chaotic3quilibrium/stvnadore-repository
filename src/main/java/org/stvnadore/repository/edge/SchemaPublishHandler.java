@@ -3,8 +3,12 @@ package org.stvnadore.repository.edge;
 import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
+import org.stvnadore.core.StvnCompiler;
+import org.stvnadore.core.binary.SchemaIdentityStrategy;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
+import org.stvnadore.core.binary.StvnBinaryEncoder;
 import org.stvnadore.core.binary.exceptions.UnsupportedEncodingStrategyException;
+import org.stvnadore.core.ir.StvnValue;
 import org.stvnadore.core.utils.StvnStringCapacityUtils;
 import org.stvnadore.core.validation.MalformedPayloadException;
 import org.stvnadore.repository.SimpleSchemaRepositoryEngine;
@@ -17,8 +21,11 @@ import org.stvnadore.repository.ports.CasStoragePort;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.HexFormat;
 import java.util.Map;
 import java.util.Optional;
+import java.util.zip.CRC32C;
+import org.stvnadore.core.binary.StvnSchemaHasher;
 
 /**
  * HTTP request handler managing schema publication and retrieval REST endpoints.
@@ -239,9 +246,69 @@ public class SchemaPublishHandler implements Handler {
             return;
         }
 
+        // 1. If stored bytes are already an STVN binary payload (magic bytes 'S','T','V','N')
+        boolean isStoredBinary = envelopeBytes.length >= 4 &&
+            envelopeBytes[0] == (byte) 'S' && envelopeBytes[1] == (byte) 'T' &&
+            envelopeBytes[2] == (byte) 'V' && envelopeBytes[3] == (byte) 'N';
+
+        String acceptHeader = ctx.header("Accept");
+        boolean requestsBinary = acceptHeader != null && acceptHeader.toLowerCase().contains("application/stvn-bin");
+
+        if (isStoredBinary) {
+            ctx.contentType("application/stvn-bin");
+            ctx.result(envelopeBytes);
+            return;
+        }
+
         String envelopeText = new String(envelopeBytes, StandardCharsets.UTF_8);
         Optional<String> unpacked = StvnCasPackager.unpackSourceText(envelopeText);
         String responsePayload = unpacked.orElse(envelopeText);
+
+        if (requestsBinary) {
+            try {
+                byte[] hashBytes = HexFormat.of().parseHex(casHash);
+                // Attempt to compile sourceText first, or fallback to envelopeText AST
+                Optional<StvnValue> astOpt = StvnCompiler.compile(responsePayload);
+                if (astOpt.isEmpty()) {
+                    astOpt = StvnCompiler.compile(envelopeText);
+                }
+                if (astOpt.isEmpty()) {
+                    String fallbackEnvelope = StvnCasPackager.packageEnvelope("schema.stvn_inclf", casHash, responsePayload);
+                    astOpt = StvnCompiler.compile(fallbackEnvelope);
+                }
+                if (astOpt.isPresent()) {
+                    StvnValue rootVal = astOpt.get();
+                    byte[] astSchemaHash = (rootVal.schema() != null)
+                        ? StvnSchemaHasher.computeSha256(rootVal.schema())
+                        : hashBytes;
+                    var encoder = new StvnBinaryEncoder(
+                        true,
+                        new SchemaIdentityStrategy.ExplicitSha256(astSchemaHash)
+                    );
+                    ByteBuffer encoded = encoder.encode(rootVal);
+                    byte[] binaryResponse = new byte[encoded.remaining()];
+                    encoded.get(binaryResponse);
+
+                    // Overwrite embedded 32-byte header hash with authoritative CAS address
+                    System.arraycopy(hashBytes, 0, binaryResponse, 5, 32);
+
+                    // Recalculate CRC-32C trailer over payload (excluding last 4 trailer bytes)
+                    CRC32C crc = new CRC32C();
+                    crc.update(binaryResponse, 0, binaryResponse.length - 4);
+                    int crcVal = (int) crc.getValue();
+                    binaryResponse[binaryResponse.length - 4] = (byte) (crcVal & 0xFF);
+                    binaryResponse[binaryResponse.length - 3] = (byte) ((crcVal >>> 8) & 0xFF);
+                    binaryResponse[binaryResponse.length - 2] = (byte) ((crcVal >>> 16) & 0xFF);
+                    binaryResponse[binaryResponse.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
+
+                    ctx.contentType("application/stvn-bin");
+                    ctx.result(binaryResponse);
+                    return;
+                }
+            } catch (Exception ignored) {
+                // If binary compilation/encoding fails, fall through to text response
+            }
+        }
 
         // Return raw application/stvn schema stream
         ctx.contentType("application/stvn");
