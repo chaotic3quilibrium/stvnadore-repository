@@ -117,7 +117,7 @@ public class SchemaPublishHandlerTest {
     @Test
     public void testPublishValidationError() throws Exception {
         String name = "bad-schema";
-        String body = "invalid-syntax";
+        String body = "malformed-syntax";
         List<CompileDiagnostic> diagnostics = List.of(
             new CompileDiagnostic("Syntax error", 1, 10),
             new CompileDiagnostic("Missing type", 2, 5)
@@ -213,7 +213,7 @@ public class SchemaPublishHandlerTest {
     @Test
     public void testPublishBinarySuccess() throws Exception {
         String name = "valid-binary";
-        byte[] payload = Files.readAllBytes(Paths.get("target/test-classes/fixtures/valid-syntax/crc32c_trailer_valid.stvn_bin"));
+        byte[] payload = Files.readAllBytes(Paths.get("target/test-classes/fixtures/syntax/valid/scalars/crc32c_trailer_valid.stvn_bin"));
         SchemaMetadata metadata = new SchemaMetadata(name, "ShapeSig", "Hash123");
         PublishResult result = new PublishResult.Success(metadata);
 
@@ -258,7 +258,7 @@ public class SchemaPublishHandlerTest {
     @Test
     public void testPublishBinaryMalformedCrc32cThrows422() throws Exception {
         String name = "tampered-crc";
-        byte[] tampered = Files.readAllBytes(Paths.get("target/test-classes/fixtures/invalid-syntax/binary_crc32c_payload_tampered.stvn_bin"));
+        byte[] tampered = Files.readAllBytes(Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_payload_tampered.stvn_bin"));
         when(ctx.contentType()).thenReturn("application/stvn-bin");
         when(ctx.pathParam("name")).thenReturn(name);
         when(ctx.bodyAsBytes()).thenReturn(tampered);
@@ -272,7 +272,7 @@ public class SchemaPublishHandlerTest {
     @Test
     public void testPublishBinarySentinel0x7Throws422() throws Exception {
         String name = "sentinel-0x7";
-        byte[] sentinel = Files.readAllBytes(Paths.get("target/test-classes/fixtures/invalid-syntax/binary_strategy_sentinel_0x7.stvn_bin"));
+        byte[] sentinel = Files.readAllBytes(Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_strategy_sentinel_0x7.stvn_bin"));
         when(ctx.contentType()).thenReturn("application/stvn-bin");
         when(ctx.pathParam("name")).thenReturn(name);
         when(ctx.bodyAsBytes()).thenReturn(sentinel);

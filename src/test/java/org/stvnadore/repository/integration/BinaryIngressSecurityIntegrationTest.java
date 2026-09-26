@@ -112,7 +112,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-01: Tampered binary payload with CRC-32C trailer rejected with HTTP 422 and zero disk persistence")
     void testTamperedPayloadRejectedWithoutPersistence() throws Exception {
-        Path tamperedFixture = Paths.get("target/test-classes/fixtures/invalid-syntax/binary_crc32c_payload_tampered.stvn_bin");
+        Path tamperedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_payload_tampered.stvn_bin");
         byte[] payload = Files.readAllBytes(tamperedFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -137,7 +137,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-02: Truncated binary payload below 9 bytes rejected with HTTP 422")
     void testTruncatedPayloadRejected() throws Exception {
-        Path truncatedFixture = Paths.get("target/test-classes/fixtures/invalid-syntax/binary_crc32c_truncated.stvn_bin");
+        Path truncatedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_truncated.stvn_bin");
         byte[] payload = Files.readAllBytes(truncatedFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -161,7 +161,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-03: Strategy Sentinel 0x7 rejected fail-fast with HTTP 422")
     void testSentinelStrategy0x7Rejected() throws Exception {
-        Path sentinelFixture = Paths.get("target/test-classes/fixtures/invalid-syntax/binary_strategy_sentinel_0x7.stvn_bin");
+        Path sentinelFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_strategy_sentinel_0x7.stvn_bin");
         byte[] payload = Files.readAllBytes(sentinelFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -185,7 +185,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-04: Dedicated artifact binary upload router rejects tampered CRC-32C payloads")
     void testDedicatedArtifactRouterRejectsTamperedPayload() throws Exception {
-        Path tamperedFixture = Paths.get("target/test-classes/fixtures/invalid-syntax/binary_crc32c_payload_tampered.stvn_bin");
+        Path tamperedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_payload_tampered.stvn_bin");
         byte[] payload = Files.readAllBytes(tamperedFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -202,7 +202,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-05: Valid binary payload with CRC-32C trailer accepted and committed with HTTP 201")
     void testValidCrc32cPayloadAccepted() throws Exception {
-        Path validFixture = Paths.get("target/test-classes/fixtures/valid-syntax/crc32c_trailer_valid.stvn_bin");
+        Path validFixture = Paths.get("target/test-classes/fixtures/syntax/valid/scalars/crc32c_trailer_valid.stvn_bin");
         byte[] payload = Files.readAllBytes(validFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
