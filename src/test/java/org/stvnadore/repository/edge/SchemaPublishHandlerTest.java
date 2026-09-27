@@ -8,10 +8,13 @@ import org.stvnadore.repository.domain.*;
 import org.stvnadore.repository.infrastructure.StvnCasPackager;
 import org.stvnadore.repository.ports.CasStoragePort;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.zip.CRC32C;
 import java.util.List;
 import java.util.Map;
 
@@ -212,8 +215,9 @@ public class SchemaPublishHandlerTest {
 
     @Test
     public void testPublishBinarySuccess() throws Exception {
-        String name = "valid-binary";
-        byte[] payload = Files.readAllBytes(Paths.get("target/test-classes/fixtures/syntax/valid/scalars/crc32c_trailer_valid.stvn_bin"));
+        String name = "valid-binary.stvn_inclf";
+        String schemaText = "{\n  :defs {\n    :UserRecord {\n      #exact\n    } :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload(schemaText);
         SchemaMetadata metadata = new SchemaMetadata(name, "ShapeSig", "Hash123");
         PublishResult result = new PublishResult.Success(metadata);
 
@@ -310,5 +314,102 @@ public class SchemaPublishHandlerTest {
 
         verify(ctx).status(422);
         verifyNoInteractions(engine);
+    }
+
+    @Test
+    public void testPublishBinaryStrategy0x0RejectedThrows422() throws Exception {
+        String name = "strat-0x0.stvn_inclf";
+        byte[] payload = Files.readAllBytes(Paths.get("target/test-classes/fixtures/syntax/valid/scalars/crc32c_trailer_valid.stvn_bin"));
+        when(ctx.contentType()).thenReturn("application/stvn-bin");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.bodyAsBytes()).thenReturn(payload);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(422);
+        verifyNoInteractions(engine);
+    }
+
+    @Test
+    public void testPublishBinaryStrategy0x7RejectedThrows422() throws Exception {
+        String name = "strat-0x7.stvn_inclf";
+        byte[] payload = new byte[]{
+            'S', 'T', 'V', 'N',
+            (byte) 0x87, // Strategy 0x7 ExplicitSha256 with trailer flag
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 32B hash
+            0, 0, 0, 0 // CRC trailer placeholder
+        };
+        CRC32C crc = new CRC32C();
+        crc.update(payload, 0, payload.length - 4);
+        int crcVal = (int) crc.getValue();
+        payload[payload.length - 4] = (byte) (crcVal & 0xFF);
+        payload[payload.length - 3] = (byte) ((crcVal >>> 8) & 0xFF);
+        payload[payload.length - 2] = (byte) ((crcVal >>> 16) & 0xFF);
+        payload[payload.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
+
+        when(ctx.contentType()).thenReturn("application/stvn-bin");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.bodyAsBytes()).thenReturn(payload);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(422);
+        verifyNoInteractions(engine);
+    }
+
+    @Test
+    public void testGetCasPayloadStoredBinaryAcceptTextTranscoded() {
+        String casHash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] storedBinary = createValidEphemeral0x8Payload(schemaText);
+
+        when(ctx.pathParam("hash")).thenReturn(casHash);
+        when(ctx.header("Accept")).thenReturn("application/stvn");
+        when(casStoragePort.read(casHash)).thenReturn(storedBinary);
+
+        handler.handleGetCasPayload(ctx);
+
+        verify(ctx).contentType("application/stvn");
+        verify(ctx).result(schemaText);
+    }
+
+    @Test
+    public void testGetCasPayloadStoredBinaryAcceptBinaryServedDirectly() {
+        String casHash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] storedBinary = createValidEphemeral0x8Payload(schemaText);
+
+        when(ctx.pathParam("hash")).thenReturn(casHash);
+        when(ctx.header("Accept")).thenReturn("application/stvn-bin");
+        when(casStoragePort.read(casHash)).thenReturn(storedBinary);
+
+        handler.handleGetCasPayload(ctx);
+
+        verify(ctx).contentType("application/stvn-bin");
+        verify(ctx).result(storedBinary);
+    }
+
+    private static byte[] createValidEphemeral0x8Payload(String schemaText) {
+        byte[] textBytes = schemaText.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.allocate(256 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
+        buf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
+        buf.putInt(textBytes.length - 1);
+        buf.put(textBytes);
+        buf.put((byte) 0x00);
+        int payloadStart = buf.position();
+        int arenaOffset = payloadStart + 3;
+        buf.put((byte) arenaOffset);
+        buf.put((byte) 0);
+        buf.put((byte) 0);
+        buf.put((byte) 0x42);
+
+        CRC32C crc = new CRC32C();
+        crc.update(ByteBuffer.wrap(buf.array(), 0, buf.position()));
+        buf.putInt((int) crc.getValue());
+
+        byte[] result = new byte[buf.position()];
+        System.arraycopy(buf.array(), 0, result, 0, result.length);
+        return result;
     }
 }

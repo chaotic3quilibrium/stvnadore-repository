@@ -11,6 +11,7 @@ import org.stvnadore.core.binary.exceptions.UnsupportedEncodingStrategyException
 import org.stvnadore.core.ir.StvnValue;
 import org.stvnadore.core.utils.StvnStringCapacityUtils;
 import org.stvnadore.core.validation.MalformedPayloadException;
+import org.stvnadore.repository.domain.CompileDiagnostic;
 import org.stvnadore.repository.domain.PublishRequest;
 import org.stvnadore.repository.domain.PublishResult;
 import org.stvnadore.repository.domain.SchemaMetadata;
@@ -19,8 +20,10 @@ import org.stvnadore.repository.infrastructure.StvnCasPackager;
 import org.stvnadore.repository.ports.CasStoragePort;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.zip.CRC32C;
@@ -132,10 +135,63 @@ public class SchemaPublishHandler implements Handler {
         }
 
         // Zero-Trust Perimeter Verification:
-        // Enforces magic bytes, CRC-32C trailer validation (Byte 4 Bit 7), and Strategy Sentinel 0x7 rejection
+        // Enforces magic bytes, CRC-32C trailer validation (Byte 4 Bit 7), and Strategy 0x8 Whitelist
         try {
+            if (binaryBytes.length < 5 ||
+                binaryBytes[0] != (byte) 'S' || binaryBytes[1] != (byte) 'T' ||
+                binaryBytes[2] != (byte) 'V' || binaryBytes[3] != (byte) 'N') {
+                ctx.status(400);
+                ctx.json(Map.of("error", "Bad Request", "message", "Invalid STVN binary: Magic preamble mismatch (expected 'STVN')"));
+                return;
+            }
+
+            byte controlByte = binaryBytes[4];
+            boolean hasTrailer = (controlByte & 0x80) != 0;
+            if (hasTrailer) {
+                if (binaryBytes.length < 9) {
+                    throw new MalformedPayloadException(
+                        "Buffer too small for STVN binary with CRC-32C trailer: requires at least 9 bytes, found " + binaryBytes.length
+                    );
+                }
+                CRC32C crc32c = new CRC32C();
+                crc32c.update(binaryBytes, 0, binaryBytes.length - 4);
+                long computedCrc = crc32c.getValue();
+                ByteBuffer trailerBuf = ByteBuffer.wrap(binaryBytes).order(ByteOrder.LITTLE_ENDIAN);
+                long expectedCrc = Integer.toUnsignedLong(trailerBuf.getInt(binaryBytes.length - 4));
+                if (computedCrc != expectedCrc) {
+                    throw new MalformedPayloadException("CRC-32C trailer mismatch: payload corrupted or truncated");
+                }
+            }
+
+            int encodingStrategy = (controlByte & 0x70) >>> 4;
+            if (encodingStrategy == 7) {
+                throw new UnsupportedEncodingStrategyException("Strategy 0x7 is reserved for multi-byte header extension");
+            }
+
+            int identityStrategyCode = controlByte & 0x0F;
+            if (identityStrategyCode != 0x08) {
+                ctx.status(422);
+                ctx.json(List.of(new CompileDiagnostic(
+                    "ERR_UNSUPPORTED_STRATEGY: Binary schema uploads must strictly use Ephemeral Strategy (0x8); received: 0x" +
+                        Integer.toHexString(identityStrategyCode).toUpperCase(),
+                    1, 4, 4, 5
+                )));
+                return;
+            }
+
+            ByteBuffer bb = ByteBuffer.wrap(binaryBytes).order(ByteOrder.LITTLE_ENDIAN);
+            if (binaryBytes.length < 9) {
+                throw new MalformedPayloadException("Malformed Strategy 0x8 payload: truncated length prefix");
+            }
+            long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
+            if (textLenLong > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY || 9 + textLenLong > binaryBytes.length - (hasTrailer ? 4 : 0)) {
+                throw new MalformedPayloadException("Malformed Strategy 0x8 payload: invalid inlined schema length " + textLenLong);
+            }
+            int textLen = (int) textLenLong;
+            String inlinedText = new String(binaryBytes, 9, textLen, StandardCharsets.UTF_8);
+
             ByteBuffer buffer = ByteBuffer.wrap(binaryBytes);
-            var root = StvnBinaryDecoder.open(buffer);
+            var root = StvnBinaryDecoder.openStrict(buffer, new SchemaIdentityStrategy.SelfDescribingSchema(inlinedText));
 
             PublishRequest request = new PublishRequest(schemaName, binaryBytes);
             PublishResult result = engine.publishBinary(request, root);
@@ -157,6 +213,12 @@ public class SchemaPublishHandler implements Handler {
             ctx.json(Map.of(
                 "error", "Bad Request",
                 "message", e.getMessage() != null ? e.getMessage() : "Invalid STVN binary"
+            ));
+        } catch (Exception e) {
+            ctx.status(422);
+            ctx.json(Map.of(
+                "error", "Malformed Payload",
+                "message", e.getMessage() != null ? e.getMessage() : "Failed to decode binary payload"
             ));
         }
     }
@@ -248,6 +310,26 @@ public class SchemaPublishHandler implements Handler {
         boolean requestsBinary = acceptHeader != null && acceptHeader.toLowerCase().contains(MEDIA_TYPE_STVN_BIN);
 
         if (isStoredBinary) {
+            if (requestsBinary) {
+                ctx.contentType(MEDIA_TYPE_STVN_BIN);
+                ctx.result(envelopeBytes);
+                return;
+            }
+            // Transcode stored Strategy 0x8 binary schema to UTF-8 text for application/stvn requests
+            try {
+                if (envelopeBytes.length >= 9 && (envelopeBytes[4] & 0x0F) == 0x08) {
+                    ByteBuffer bb = ByteBuffer.wrap(envelopeBytes).order(ByteOrder.LITTLE_ENDIAN);
+                    long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
+                    if (textLenLong <= StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY && 9 + textLenLong <= envelopeBytes.length) {
+                        String inlinedText = new String(envelopeBytes, 9, (int) textLenLong, StandardCharsets.UTF_8);
+                        ctx.contentType(MEDIA_TYPE_STVN);
+                        ctx.result(inlinedText);
+                        return;
+                    }
+                }
+            } catch (Exception ignored) {
+                // Fallback to streaming raw binary if unpack fails
+            }
             ctx.contentType(MEDIA_TYPE_STVN_BIN);
             ctx.result(envelopeBytes);
             return;

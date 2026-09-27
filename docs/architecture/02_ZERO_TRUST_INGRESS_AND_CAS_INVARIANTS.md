@@ -2,7 +2,7 @@
 
 - **Document ID**: STVN-SPEC-REPO-02  
 - **Status**: Canonical Specification  
-- **Version**: 1.3.0  
+- **Version**: 2.0.0-SNAPSHOT  
 - **Compliance**: Mandatory for all STVN ecosystem server and repository implementations.  
 
 ---
@@ -115,54 +115,58 @@ Bit 7           Bit 6   Bit 5   Bit 4   Bit 3   Bit 2   Bit 1   Bit 0
 * Code `0x7`: Reserved sentinel for multi-byte header extension. Encountering `0x7` raises `UnsupportedEncodingStrategyException`.
 
 #### 3. Schema Identity Strategy (Bits 3..0, Mask `0x0F`): `SchemaIdentityStrategy`
-* Code `0x0`: `UniversalDefault`
-* Code `0x1`: `ExplicitSha256`
-* Code `0x2`: `SelfDescribingSchema`
+* Code `0x8`: `SelfDescribingSchema` (Ephemeral Strategy). Mandatory for all binary schema ingress.
+* Codes `0x0` through `0x7`, `0x9` through `0xF`: Non-ephemeral strategies. Strictly prohibited for schema ingress; rejected fail-closed with `ERR_UNSUPPORTED_STRATEGY` (HTTP 422).
 
-### 3.3 Hardware-Accelerated CRC-32C Validation Algorithm
+### 3.3 Hardware-Accelerated CRC-32C Validation & Strategy 0x8 Perimeter Gate
 The server executes the integrity verification algorithm within `SchemaPublishHandler`:
 
 ```java
-ByteBuffer buffer = ByteBuffer.wrap(binaryBytes);
-if (buffer.remaining() < 5) {
-    throw new IllegalArgumentException("Buffer smaller than STVN 5-byte header");
-}
-
 // 1. Magic byte verification
-int magic = buffer.getInt(0);
-if (magic != 0x5354564E) { // ASCII "STVN"
-    throw new IllegalArgumentException("Invalid STVN magic bytes");
+if (binaryBytes.length < 5 ||
+    binaryBytes[0] != (byte) 'S' || binaryBytes[1] != (byte) 'T' ||
+    binaryBytes[2] != (byte) 'V' || binaryBytes[3] != (byte) 'N') {
+    throw new IllegalArgumentException("Invalid STVN binary: Magic preamble mismatch (expected 'STVN')");
 }
 
 // 2. Inspect Byte 4 Control Byte
-int controlByte = buffer.get(4) & 0xFF;
+byte controlByte = binaryBytes[4];
 boolean hasTrailer = (controlByte & 0x80) != 0;
-int strategyCode = (controlByte & 0x70) >>> 4;
+if (hasTrailer) {
+    if (binaryBytes.length < 9) {
+        throw new MalformedPayloadException("Buffer too small for STVN binary with CRC-32C trailer: requires at least 9 bytes, found " + binaryBytes.length);
+    }
+    CRC32C crc32c = new CRC32C();
+    crc32c.update(binaryBytes, 0, binaryBytes.length - 4);
+    long computedCrc = crc32c.getValue();
+    ByteBuffer trailerBuf = ByteBuffer.wrap(binaryBytes).order(ByteOrder.LITTLE_ENDIAN);
+    long expectedCrc = Integer.toUnsignedLong(trailerBuf.getInt(binaryBytes.length - 4));
+    if (computedCrc != expectedCrc) {
+        throw new MalformedPayloadException("CRC-32C trailer mismatch: payload corrupted or truncated");
+    }
+}
 
-if (strategyCode == 0x7) {
+int encodingStrategy = (controlByte & 0x70) >>> 4;
+if (encodingStrategy == 7) {
     throw new UnsupportedEncodingStrategyException("Strategy 0x7 is reserved for multi-byte header extension");
 }
 
-if (hasTrailer) {
-    if (buffer.remaining() < 9) {
-        throw new MalformedPayloadException("Buffer too small for STVN binary with CRC-32C trailer: requires at least 9 bytes");
-    }
-    int limit = buffer.limit();
-    CRC32C crc = new CRC32C();
-    buffer.position(0);
-    buffer.limit(limit - 4);
-    crc.update(buffer);
-    
-    buffer.limit(limit);
-    buffer.position(limit - 4);
-    int expectedCrc = buffer.order(ByteOrder.LITTLE_ENDIAN).getInt();
-    
-    if ((int) crc.getValue() != expectedCrc) {
-        throw new MalformedPayloadException("CRC-32C trailer mismatch: expected 0x" 
-            + Integer.toHexString(expectedCrc) + ", computed 0x" + Long.toHexString(crc.getValue()));
-    }
+// 3. Positive Whitelist Gate: Strategy 0x8 (Ephemeral) Only
+int identityStrategyCode = controlByte & 0x0F;
+if (identityStrategyCode != 0x08) {
+    throw new UnsupportedStrategyException("ERR_UNSUPPORTED_STRATEGY: Binary schema uploads must strictly use Ephemeral Strategy (0x8); received: 0x" + Integer.toHexString(identityStrategyCode).toUpperCase());
 }
 ```
+
+### 3.4 RootPointer Table Gating Parity (Gate 2 AST Equivalency)
+Within `SimpleSchemaRepositoryEngine.publishBinary`, the engine inspects the root pointer table:
+
+$$\text{RootPointer Table} = [\text{defsOffset}, \ \text{typeOffset}, \ \text{bodyOffset}]$$
+
+1. **`defsOffset > 0`:** Compiled `:defs` definitions dictionary must be present (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+2. **`typeOffset == 0`:** Top-level `:type` instance declaration is strictly prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+3. **`bodyOffset == 0`:** Top-level `:body` instance payload is strictly prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+4. **Inner AST Verification:** The embedded `.stvn_inclf` source string is parsed to assert strictly definitions and zero `:include` directives (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
 
 ---
 

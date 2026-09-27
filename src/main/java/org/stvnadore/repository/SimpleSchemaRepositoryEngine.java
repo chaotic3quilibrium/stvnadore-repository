@@ -23,6 +23,7 @@ import org.stvnadore.repository.ports.IndexRepositoryPort;
 import org.stvnadore.repository.ports.VersionCatalogCache;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -63,8 +64,37 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         String schemaName = request.schemaName();
 
         if (sourceText == null && request.binaryPayload() != null) {
+            byte[] payload = request.binaryPayload();
+            if (payload.length < 5 ||
+                payload[0] != (byte) 'S' || payload[1] != (byte) 'T' ||
+                payload[2] != (byte) 'V' || payload[3] != (byte) 'N') {
+                return new PublishResult.ValidationError(List.of(
+                    new CompileDiagnostic("Invalid STVN binary: Magic preamble mismatch (expected 'STVN')", 1, 1)
+                ));
+            }
+            int strategyCode = payload[4] & 0x0F;
+            if (strategyCode != 0x08) {
+                return new PublishResult.ValidationError(List.of(
+                    new CompileDiagnostic(
+                        "ERR_UNSUPPORTED_STRATEGY: Binary schema uploads must strictly use Ephemeral Strategy (0x8); received: 0x" +
+                            Integer.toHexString(strategyCode).toUpperCase(),
+                        1, 4, 4, 5
+                    )
+                ));
+            }
             try {
-                RootPointer root = StvnBinaryDecoder.open(ByteBuffer.wrap(request.binaryPayload()));
+                ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
+                if (payload.length < 9) {
+                    throw new org.stvnadore.core.validation.MalformedPayloadException(
+                        "Buffer too small for STVN binary with CRC-32C trailer: requires at least 9 bytes, found " + payload.length
+                    );
+                }
+                long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
+                if (textLenLong > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY || 9 + textLenLong > payload.length) {
+                    throw new org.stvnadore.core.validation.MalformedPayloadException("Malformed Strategy 0x8 payload: invalid inlined schema length " + textLenLong);
+                }
+                String inlinedText = new String(payload, 9, (int) textLenLong, StandardCharsets.UTF_8);
+                RootPointer root = StvnBinaryDecoder.openStrict(ByteBuffer.wrap(payload), new SchemaIdentityStrategy.SelfDescribingSchema(inlinedText));
                 return publishBinary(request, root);
             } catch (Exception e) {
                 return new PublishResult.ValidationError(List.of(
@@ -233,33 +263,104 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             ));
         }
 
-        String casHash;
-        String shapeSignature;
+        // Perimeter Gate: Enforce positive Strategy 0x8 (Ephemeral) Whitelist
+        if (root.context().identityStrategy().isEmpty() ||
+            !(root.context().identityStrategy().get() instanceof SchemaIdentityStrategy.SelfDescribingSchema self)) {
+            int strategyCode = binaryPayload.length > 4 ? (binaryPayload[4] & 0x0F) : -1;
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic(
+                    "ERR_UNSUPPORTED_STRATEGY: Binary schema uploads must strictly use Ephemeral Strategy (0x8); received: 0x" +
+                        Integer.toHexString(strategyCode).toUpperCase(),
+                    1, 4, 4, 5
+                )
+            ));
+        }
 
-        if (root.context().identityStrategy().isPresent() &&
-            root.context().identityStrategy().get() instanceof SchemaIdentityStrategy.ExplicitSha256 explicit) {
-            casHash = HexFormat.of().formatHex(explicit.hash());
-            shapeSignature = "binary:" + schemaName + ":" + root.context().encodingStrategy().name();
-        } else if (root.schema().isPresent()) {
-            ResolvedSchema schema = root.schema().get();
-            try {
-                byte[] hashBytes = StvnSchemaHasher.computeSha256(schema);
-                casHash = HexFormat.of().formatHex(hashBytes);
-            } catch (Exception e) {
+        // Gate 1 (Filename Hygiene): Enforce that schema filename strictly ends with .stvn_inclf
+        if (!schemaName.endsWith(".stvn_inclf")) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema filename must strictly end with '.stvn_inclf': " + schemaName, 1, 1, 0, schemaName.length())
+            ));
+        }
+
+        // Gate 2 (AST Equivalency): RootPointer Table Gating
+        // In STVN 2.0.0 binary schemas, RootPointer Table encodes [defsOffset, typeOffset, bodyOffset]
+        int defsOffset = extractDefsOffset(root);
+        int typeOffset = extractTypeOffset(root);
+        int bodyOffset = extractBodyOffset(root);
+
+        if (defsOffset <= 0) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema binary envelope must contain strictly a " + StvnVocabulary.KEYWORD_DEFS + " section", 1, 1)
+            ));
+        }
+
+        if (typeOffset != 0 || bodyOffset != 0) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level " + StvnVocabulary.KEYWORD_TYPE + " and " + StvnVocabulary.KEYWORD_BODY + " sections are prohibited in flat schema binary envelope", 1, 1)
+            ));
+        }
+
+        // Validate inner Ephemeral source text AST structure
+        String innerSourceText = self.stvnInclfContent();
+        StvnCompilationResult<StvnValue> compileResult = StvnCompiler.compileToResult(innerSourceText, schemaName, StvnParserConfig.STRICT);
+        if (compileResult.hasErrors()) {
+            return new PublishResult.ValidationError(compileResult.diagnostics().stream()
+                .map(d -> {
+                    String msg = d.message();
+                    if (d.errorCode().isPresent() && !msg.contains(d.errorCode().get())) {
+                        msg = d.errorCode().get() + ": " + msg;
+                    }
+                    return new CompileDiagnostic(msg, d.line(), d.column(), d.startOffset(), d.endOffset());
+                })
+                .toList());
+        }
+
+        // Gate 2 (AST Structure Invariant): Root context must contain strictly a :defs section
+        StvnLexer lexer = new StvnLexer(CharStreams.fromString(innerSourceText));
+        lexer.removeErrorListeners();
+        StvnParser parser = new StvnParser(new CommonTokenStream(lexer));
+        parser.removeErrorListeners();
+        var docCtx = parser.stvnDocument();
+
+        if (docCtx.documentBody() == null || docCtx.documentBody().defsEntry() == null) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema root must contain strictly a " + StvnVocabulary.KEYWORD_DEFS + " section", 1, 1)
+            ));
+        }
+
+        if (docCtx.documentBody().typeEntry() != null) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level " + StvnVocabulary.KEYWORD_TYPE + " section is prohibited in flat schema document", 1, 1)
+            ));
+        }
+
+        if (docCtx.documentBody().bodyEntry() != null) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level " + StvnVocabulary.KEYWORD_BODY + " section is prohibited in flat schema document", 1, 1)
+            ));
+        }
+
+        for (var element : docCtx.documentBody().defsEntry().defsElement()) {
+            if (element.includeStmt() != null) {
                 return new PublishResult.ValidationError(List.of(
-                    new CompileDiagnostic("Schema hashing failed: " + e.getMessage(), 1, 1)
+                    new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_inclf) cannot contain " + StvnVocabulary.KEYWORD_INCLUDE + " directives", 1, 1)
                 ));
             }
-            shapeSignature = "binary:" + schemaName + ":" + root.context().encodingStrategy().name();
-        } else {
-            try {
-                MessageDigest digest = MessageDigest.getInstance("SHA-256");
-                byte[] hashBytes = digest.digest(binaryPayload);
-                casHash = HexFormat.of().formatHex(hashBytes);
-            } catch (NoSuchAlgorithmException e) {
-                throw new RuntimeException("SHA-256 algorithm missing from environment", e);
-            }
-            shapeSignature = "binary:" + root.context().encodingStrategy().name();
+        }
+
+        // Derive canonical structural shape signature via flattener
+        String casHash;
+        String shapeSignature;
+        try {
+            shapeSignature = StvnSchemaFlattener.flatten(Map.of(schemaName, innerSourceText), schemaName);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashBytes = digest.digest(shapeSignature.getBytes(StandardCharsets.UTF_8));
+            casHash = HexFormat.of().formatHex(hashBytes);
+        } catch (Exception e) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("Schema flattening failed: " + e.getMessage(), 1, 1)
+            ));
         }
 
         SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash);
@@ -322,5 +423,69 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         Optional<SchemaMetadata> dbResult = indexRepositoryPort.findByShape(schemaName, shapeSignature);
         dbResult.ifPresent(versionCatalogCache::put);
         return dbResult;
+    }
+
+    /**
+     * Extracts the compiled :defs section offset from the binary RootPointer structure.
+     *
+     * @param root the binary RootPointer context
+     * @return the defs offset, or 0 if absent
+     */
+    static int extractDefsOffset(RootPointer root) {
+        if (root.rootOffset() > 0) {
+            return root.rootOffset();
+        }
+        ByteBuffer buf = root.context().buffer();
+        int offsetSize = root.context().offsetSize();
+        int defsPos = root.context().payloadStart() - offsetSize;
+        if (defsPos >= 0 && buf.limit() >= defsPos + offsetSize) {
+            return readRawOffset(buf, defsPos, offsetSize);
+        }
+        return 0;
+    }
+
+    /**
+     * Extracts the top-level :type section offset from the binary RootPointer structure.
+     *
+     * @param root the binary RootPointer context
+     * @return the type offset, or 0 if absent
+     */
+    static int extractTypeOffset(RootPointer root) {
+        ByteBuffer buf = root.context().buffer();
+        int offsetSize = root.context().offsetSize();
+        int typePos = root.context().payloadStart();
+        if (typePos >= 0 && buf.limit() >= typePos + offsetSize) {
+            return readRawOffset(buf, typePos, offsetSize);
+        }
+        return 0;
+    }
+
+    /**
+     * Extracts the top-level :body section offset from the binary RootPointer structure.
+     *
+     * @param root the binary RootPointer context
+     * @return the body offset, or 0 if absent
+     */
+    static int extractBodyOffset(RootPointer root) {
+        ByteBuffer buf = root.context().buffer();
+        int offsetSize = root.context().offsetSize();
+        int bodyPos = root.context().payloadStart() + offsetSize;
+        if (bodyPos >= 0 && buf.limit() >= bodyPos + offsetSize) {
+            return readRawOffset(buf, bodyPos, offsetSize);
+        }
+        return 0;
+    }
+
+    private static int readRawOffset(ByteBuffer buf, int pos, int offsetSize) {
+        if (pos < 0 || pos + offsetSize > buf.limit()) {
+            return 0;
+        }
+        return switch (offsetSize) {
+            case 1 -> Byte.toUnsignedInt(buf.get(pos));
+            case 2 -> Short.toUnsignedInt(buf.getShort(pos));
+            case 4 -> buf.getInt(pos);
+            case 8 -> (int) buf.getLong(pos);
+            default -> 0;
+        };
     }
 }

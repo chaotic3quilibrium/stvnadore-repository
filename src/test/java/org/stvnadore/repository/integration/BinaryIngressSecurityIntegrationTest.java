@@ -21,13 +21,18 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
 import java.util.UUID;
 import java.util.stream.Stream;
+import java.util.zip.CRC32C;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -200,24 +205,277 @@ public class BinaryIngressSecurityIntegrationTest {
     }
 
     @Test
-    @DisplayName("SEC-05: Valid binary payload with CRC-32C trailer accepted and committed with HTTP 201")
-    void testValidCrc32cPayloadAccepted() throws Exception {
-        Path validFixture = Paths.get("target/test-classes/fixtures/syntax/valid/scalars/crc32c_trailer_valid.stvn_bin");
-        byte[] payload = Files.readAllBytes(validFixture);
+    @DisplayName("SEC-05: Non-ephemeral Strategy 0x0 payload rejected fail-closed with HTTP 422")
+    void testStrategy0x0RejectedWithHttp422() throws Exception {
+        Path defaultStrategyFixture = Paths.get("target/test-classes/fixtures/syntax/valid/scalars/crc32c_trailer_valid.stvn_bin");
+        byte[] payload = Files.readAllBytes(defaultStrategyFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/valid_crc_test"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/default_strat.stvn_inclf"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
             .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_UNSUPPORTED_STRATEGY"), "Must report ERR_UNSUPPORTED_STRATEGY: " + response.body());
+        assertTrue(response.body().contains("Ephemeral Strategy (0x8)"), "Must require Ephemeral Strategy: " + response.body());
+
+        try (Stream<Path> stream = Files.walk(tempCasRoot)) {
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            assertEquals(0, casFileCount, "Strategy 0x0 payload must NEVER be persisted to CAS storage");
+        }
+    }
+
+    @Test
+    @DisplayName("SEC-06: Non-ephemeral Strategy 0x7 payload rejected fail-closed with HTTP 422")
+    void testStrategy0x7RejectedWithHttp422() throws Exception {
+        byte[] payload = new byte[]{
+            'S', 'T', 'V', 'N',
+            (byte) 0x87, // Control byte: CRC flag (0x80) + Strategy 0x7 (ExplicitSha256)
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 32B dummy SHA-256 hash
+            0, 0, 0, 0 // CRC trailer placeholder
+        };
+        CRC32C crc = new CRC32C();
+        crc.update(payload, 0, payload.length - 4);
+        int crcVal = (int) crc.getValue();
+        payload[payload.length - 4] = (byte) (crcVal & 0xFF);
+        payload[payload.length - 3] = (byte) ((crcVal >>> 8) & 0xFF);
+        payload[payload.length - 2] = (byte) ((crcVal >>> 16) & 0xFF);
+        payload[payload.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0x7.stvn_inclf"))
+            .header("Content-Type", "application/stvn-bin")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_UNSUPPORTED_STRATEGY"));
+
+        try (Stream<Path> stream = Files.walk(tempCasRoot)) {
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            assertEquals(0, casFileCount, "Strategy 0x7 payload must NEVER be persisted to CAS storage");
+        }
+    }
+
+    @Test
+    @DisplayName("SEC-07: Non-ephemeral Strategy 0x1 payload rejected fail-closed with HTTP 422")
+    void testStrategy0x1RejectedWithHttp422() throws Exception {
+        byte[] payload = new byte[]{
+            'S', 'T', 'V', 'N',
+            (byte) 0x81, // Control byte: CRC flag (0x80) + Strategy 0x1 (UuidV8Hash)
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 16B UUID
+            0, 0, 0, 0 // CRC trailer placeholder
+        };
+        CRC32C crc = new CRC32C();
+        crc.update(payload, 0, payload.length - 4);
+        int crcVal = (int) crc.getValue();
+        payload[payload.length - 4] = (byte) (crcVal & 0xFF);
+        payload[payload.length - 3] = (byte) ((crcVal >>> 8) & 0xFF);
+        payload[payload.length - 2] = (byte) ((crcVal >>> 16) & 0xFF);
+        payload[payload.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0x1.stvn_inclf"))
+            .header("Content-Type", "application/stvn-bin")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_UNSUPPORTED_STRATEGY"));
+    }
+
+    @Test
+    @DisplayName("SEC-08: Non-ephemeral Strategy 0xF payload rejected fail-closed with HTTP 422")
+    void testStrategy0xFRejectedWithHttp422() throws Exception {
+        byte[] payload = new byte[]{
+            'S', 'T', 'V', 'N',
+            (byte) 0x8F, // Control byte: CRC flag (0x80) + Strategy 0xF (Reserved)
+            0, 0, 0, 0, 0,
+            0, 0, 0, 0 // CRC trailer placeholder
+        };
+        CRC32C crc = new CRC32C();
+        crc.update(payload, 0, payload.length - 4);
+        int crcVal = (int) crc.getValue();
+        payload[payload.length - 4] = (byte) (crcVal & 0xFF);
+        payload[payload.length - 3] = (byte) ((crcVal >>> 8) & 0xFF);
+        payload[payload.length - 2] = (byte) ((crcVal >>> 16) & 0xFF);
+        payload[payload.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0xF.stvn_inclf"))
+            .header("Content-Type", "application/stvn-bin")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_UNSUPPORTED_STRATEGY"));
+    }
+
+    @Test
+    @DisplayName("SEC-09: Valid Ephemeral Strategy 0x8 binary schema accepted and committed with HTTP 201")
+    void testValidEphemeralStrategy0x8Accepted() throws Exception {
+        String schemaText = "{\n  :defs {\n    :UserRecord {\n      #maxSize 100\n    } :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload(schemaText, true, 0, 0);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/valid_user.stvn_inclf"))
+            .header("Content-Type", "application/stvn-bin")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         assertEquals(201, response.statusCode(), "Valid binary payload must return HTTP 201: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
             long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
             assertTrue(casFileCount > 0, "Valid payload must be persisted to CAS storage");
         }
+    }
+
+    @Test
+    @DisplayName("SEC-10A: Gate 2 RootPointer table non-zero typeOffset rejected with HTTP 422")
+    void testGate2NonZeroTypeOffsetRejected() throws Exception {
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload(schemaText, true, 1, 0);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/type_nonzero.stvn_inclf"))
+            .header("Content-Type", "application/stvn-bin")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_MALFORMED_SCHEMA_IN_ENVELOPE"), "Must report ERR_MALFORMED_SCHEMA_IN_ENVELOPE: " + response.body());
+        assertTrue(response.body().contains("Top-level :type and :body sections are prohibited"), "Must prohibit :type section: " + response.body());
+
+        try (Stream<Path> stream = Files.walk(tempCasRoot)) {
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            assertEquals(0, casFileCount, "Invalid Gate 2 payload must NEVER be persisted to CAS storage");
+        }
+    }
+
+    @Test
+    @DisplayName("SEC-10B: Gate 2 RootPointer table non-zero bodyOffset rejected with HTTP 422")
+    void testGate2NonZeroBodyOffsetRejected() throws Exception {
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload(schemaText, true, 0, 1);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/body_nonzero.stvn_inclf"))
+            .header("Content-Type", "application/stvn-bin")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+        assertTrue(response.body().contains("ERR_MALFORMED_SCHEMA_IN_ENVELOPE"), "Must report ERR_MALFORMED_SCHEMA_IN_ENVELOPE: " + response.body());
+        assertTrue(response.body().contains("Top-level :type and :body sections are prohibited"), "Must prohibit :body section: " + response.body());
+
+        try (Stream<Path> stream = Files.walk(tempCasRoot)) {
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            assertEquals(0, casFileCount, "Invalid Gate 2 payload must NEVER be persisted to CAS storage");
+        }
+    }
+
+    @Test
+    @DisplayName("SEC-10C: Gate 2 RootPointer table zero defsOffset rejected fail-closed")
+    void testGate2ZeroDefsOffsetRejected() throws Exception {
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload(schemaText, false, 0, 0);
+
+        HttpRequest request = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/defs_zero.stvn_inclf"))
+            .header("Content-Type", "application/stvn-bin")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
+            .build();
+
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        assertEquals(422, response.statusCode());
+
+        try (Stream<Path> stream = Files.walk(tempCasRoot)) {
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            assertEquals(0, casFileCount, "Zero defs payload must NEVER be persisted to CAS storage");
+        }
+    }
+
+    @Test
+    @DisplayName("SEC-11: Content negotiation returns transcoded UTF-8 text for application/stvn")
+    void testContentNegotiationStoredBinaryToText() throws Exception {
+        String schemaText = "{\n  :defs {\n    :AccountOwner :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload(schemaText, true, 0, 0);
+
+        HttpRequest uploadReq = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/account_owner.stvn_inclf"))
+            .header("Content-Type", "application/stvn-bin")
+            .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
+            .build();
+
+        HttpResponse<String> uploadRes = httpClient.send(uploadReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, uploadRes.statusCode());
+
+        com.fasterxml.jackson.databind.JsonNode json = new com.fasterxml.jackson.databind.ObjectMapper().readTree(uploadRes.body());
+        String casHash = json.get("casHash").asText();
+
+        // 1. Fetch requesting default / application/stvn text
+        HttpRequest fetchTextReq = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/cas/" + casHash))
+            .header("Accept", "application/stvn")
+            .GET()
+            .build();
+
+        HttpResponse<String> textRes = httpClient.send(fetchTextReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, textRes.statusCode());
+        assertTrue(textRes.headers().firstValue("Content-Type").orElse("").contains("application/stvn"));
+        assertEquals(schemaText, textRes.body());
+
+        // 2. Fetch requesting application/stvn-bin binary
+        HttpRequest fetchBinReq = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/cas/" + casHash))
+            .header("Accept", "application/stvn-bin")
+            .GET()
+            .build();
+
+        HttpResponse<byte[]> binRes = httpClient.send(fetchBinReq, HttpResponse.BodyHandlers.ofByteArray());
+        assertEquals(200, binRes.statusCode());
+        assertTrue(binRes.headers().firstValue("Content-Type").orElse("").contains("application/stvn-bin"));
+        assertArrayEquals(binaryPayload, binRes.body());
+    }
+
+    private static byte[] createBinarySchemaPayload(String schemaText, boolean validDefs, int typeOffset, int bodyOffset) {
+        byte[] textBytes = schemaText.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.allocate(256 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
+        buf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
+        buf.putInt(textBytes.length - 1);
+        buf.put(textBytes);
+        buf.put((byte) 0x00); // 1-byte offset flag
+        int payloadStart = buf.position();
+        int arenaOffset = payloadStart + 3;
+        buf.put((byte) (validDefs ? arenaOffset : 0));
+        buf.put((byte) typeOffset);
+        buf.put((byte) bodyOffset);
+        buf.put((byte) 0x42); // dummy defs payload byte at arenaOffset
+
+        int payloadLen = buf.position();
+        CRC32C crc = new CRC32C();
+        crc.update(ByteBuffer.wrap(buf.array(), 0, payloadLen));
+        buf.putInt((int) crc.getValue());
+
+        byte[] result = new byte[buf.position()];
+        System.arraycopy(buf.array(), 0, result, 0, result.length);
+        return result;
     }
 }

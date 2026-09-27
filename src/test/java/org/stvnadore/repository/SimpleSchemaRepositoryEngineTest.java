@@ -2,13 +2,19 @@ package org.stvnadore.repository;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.stvnadore.core.binary.SchemaIdentityStrategy;
+import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.utils.StvnStringCapacityUtils;
 import org.stvnadore.repository.domain.*;
 import org.stvnadore.repository.ports.CasStoragePort;
 import org.stvnadore.repository.ports.IndexRepositoryPort;
 import org.stvnadore.repository.ports.VersionCatalogCache;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.zip.CRC32C;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
@@ -329,6 +335,152 @@ public class SimpleSchemaRepositoryEngineTest {
         assertInstanceOf(PublishResult.ValidationError.class, result);
         PublishResult.ValidationError error = (PublishResult.ValidationError) result;
         assertTrue(error.diagnostics().getFirst().message().contains("ERR_CAPACITY_OVERFLOW"));
+    }
+
+    @Test
+    public void testPublishBinaryRejectsNonEphemeralStrategy() {
+        byte[] payload = new byte[10];
+        payload[4] = 0x00; // Strategy 0x0
+        PublishRequest request = new PublishRequest("schema.stvn_inclf", payload);
+        var mockRoot = mock(StvnBinaryDecoder.RootPointer.class);
+        var mockContext = mock(StvnBinaryDecoder.DecodeContext.class);
+        when(mockRoot.context()).thenReturn(mockContext);
+        when(mockContext.identityStrategy()).thenReturn(Optional.of(new SchemaIdentityStrategy.UniversalDefault()));
+
+        PublishResult result = engine.publishBinary(request, mockRoot);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_UNSUPPORTED_STRATEGY"));
+    }
+
+    @Test
+    public void testPublishBinaryRejectsNonInclfFilename() {
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload(schemaText);
+        PublishRequest request = new PublishRequest("schema.stvn", payload);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_MALFORMED_SCHEMA_IN_ENVELOPE"));
+        assertTrue(error.diagnostics().getFirst().message().contains(".stvn_inclf"));
+    }
+
+    @Test
+    public void testPublishBinaryRejectsZeroDefsOffset() {
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload(schemaText);
+        PublishRequest request = new PublishRequest("schema.stvn_inclf", payload);
+
+        var mockRoot = mock(StvnBinaryDecoder.RootPointer.class);
+        var mockContext = mock(StvnBinaryDecoder.DecodeContext.class);
+        when(mockRoot.rootOffset()).thenReturn(0);
+        when(mockRoot.context()).thenReturn(mockContext);
+        when(mockContext.identityStrategy()).thenReturn(Optional.of(new SchemaIdentityStrategy.SelfDescribingSchema(schemaText)));
+        ByteBuffer emptyBuf = ByteBuffer.allocate(0);
+        when(mockContext.buffer()).thenReturn(emptyBuf);
+        when(mockContext.offsetSize()).thenReturn(1);
+        when(mockContext.payloadStart()).thenReturn(0);
+
+        PublishResult result = engine.publishBinary(request, mockRoot);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_MALFORMED_SCHEMA_IN_ENVELOPE"));
+        assertTrue(error.diagnostics().getFirst().message().contains(":defs"));
+    }
+
+    @Test
+    public void testPublishBinaryRejectsNonZeroTypeOffset() {
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload(schemaText);
+        PublishRequest request = new PublishRequest("schema.stvn_inclf", payload);
+
+        var mockRoot = mock(StvnBinaryDecoder.RootPointer.class);
+        var mockContext = mock(StvnBinaryDecoder.DecodeContext.class);
+        when(mockRoot.rootOffset()).thenReturn(50);
+        when(mockRoot.context()).thenReturn(mockContext);
+        when(mockContext.identityStrategy()).thenReturn(Optional.of(new SchemaIdentityStrategy.SelfDescribingSchema(schemaText)));
+        ByteBuffer buf = ByteBuffer.wrap(new byte[]{0, 0, 1, 0}); // typeOffset is non-zero
+        when(mockContext.buffer()).thenReturn(buf);
+        when(mockContext.offsetSize()).thenReturn(1);
+        when(mockContext.payloadStart()).thenReturn(2);
+
+        PublishResult result = engine.publishBinary(request, mockRoot);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_MALFORMED_SCHEMA_IN_ENVELOPE"));
+        assertTrue(error.diagnostics().getFirst().message().contains("prohibited"));
+    }
+
+    @Test
+    public void testPublishBinaryRejectsNonZeroBodyOffset() {
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload(schemaText);
+        PublishRequest request = new PublishRequest("schema.stvn_inclf", payload);
+
+        var mockRoot = mock(StvnBinaryDecoder.RootPointer.class);
+        var mockContext = mock(StvnBinaryDecoder.DecodeContext.class);
+        when(mockRoot.rootOffset()).thenReturn(50);
+        when(mockRoot.context()).thenReturn(mockContext);
+        when(mockContext.identityStrategy()).thenReturn(Optional.of(new SchemaIdentityStrategy.SelfDescribingSchema(schemaText)));
+        ByteBuffer buf = ByteBuffer.wrap(new byte[]{0, 0, 0, 1}); // bodyOffset is non-zero
+        when(mockContext.buffer()).thenReturn(buf);
+        when(mockContext.offsetSize()).thenReturn(1);
+        when(mockContext.payloadStart()).thenReturn(2);
+
+        PublishResult result = engine.publishBinary(request, mockRoot);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_MALFORMED_SCHEMA_IN_ENVELOPE"));
+        assertTrue(error.diagnostics().getFirst().message().contains("prohibited"));
+    }
+
+    @Test
+    public void testPublishBinarySuccessMatchesTextualCasHash() {
+        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
+        PublishRequest textReq = new PublishRequest("binary-biject.stvn_inclf", schemaText);
+        when(indexRepositoryPort.findBySchemaName("binary-biject.stvn_inclf")).thenReturn(Optional.empty());
+
+        PublishResult textResult = engine.publish(textReq);
+        assertInstanceOf(PublishResult.Success.class, textResult);
+        String expectedHash = ((PublishResult.Success) textResult).metadata().casHash();
+
+        byte[] payload = createValidEphemeral0x8Payload(schemaText);
+        PublishRequest binReq = new PublishRequest("binary-biject.stvn_inclf", payload);
+
+        PublishResult binResult = engine.publish(binReq);
+        assertInstanceOf(PublishResult.Success.class, binResult);
+        String binHash = ((PublishResult.Success) binResult).metadata().casHash();
+
+        assertEquals(expectedHash, binHash, "Binary publish CAS hash must equal text publish CAS hash (1:1 Law)");
+    }
+
+    private static byte[] createValidEphemeral0x8Payload(String schemaText) {
+        byte[] textBytes = schemaText.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.allocate(256 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
+        buf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
+        buf.putInt(textBytes.length - 1);
+        buf.put(textBytes);
+        buf.put((byte) 0x00);
+        int payloadStart = buf.position();
+        int arenaOffset = payloadStart + 3;
+        buf.put((byte) arenaOffset);
+        buf.put((byte) 0);
+        buf.put((byte) 0);
+        buf.put((byte) 0x42);
+
+        CRC32C crc = new CRC32C();
+        crc.update(ByteBuffer.wrap(buf.array(), 0, buf.position()));
+        buf.putInt((int) crc.getValue());
+
+        byte[] result = new byte[buf.position()];
+        System.arraycopy(buf.array(), 0, result, 0, result.length);
+        return result;
     }
 
     @Test

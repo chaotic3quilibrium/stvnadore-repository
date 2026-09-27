@@ -27,6 +27,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -371,7 +372,7 @@ public class StvnCasBijectivityRegressionTest {
         assertTrue(root.context().identityStrategy().isPresent());
         assertInstanceOf(SchemaIdentityStrategy.ExplicitSha256.class, root.context().identityStrategy().get());
 
-        // 4. Test binary blob passthrough: upload a distinct binary artifact
+        // 4. Verify Strategy 0x7 binary artifact upload is rejected with HTTP 422 under Strategy 0x8 whitelist
         byte[] distinctHashBytes = new byte[32];
         Arrays.fill(distinctHashBytes, (byte) 0xAA);
         byte[] artifactBytes = wireBytes.clone();
@@ -386,30 +387,102 @@ public class StvnCasBijectivityRegressionTest {
         artifactBytes[artifactBytes.length - 2] = (byte) ((crcVal >>> 16) & 0xFF);
         artifactBytes[artifactBytes.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
 
-        String artifactName = "telemetry_artifact.stvn_bin";
+        String artifactName = "telemetry_artifact.stvn_inclf";
         HttpRequest uploadReq = HttpRequest.newBuilder()
             .uri(URI.create("http://localhost:" + port + "/api/v1/artifacts/binary/" + artifactName))
             .POST(HttpRequest.BodyPublishers.ofByteArray(artifactBytes))
             .build();
 
         HttpResponse<String> uploadRes = httpClient.send(uploadReq, HttpResponse.BodyHandlers.ofString());
-        assertEquals(201, uploadRes.statusCode(), "Binary artifact upload must return HTTP 201: " + uploadRes.body());
+        assertEquals(422, uploadRes.statusCode(), "Strategy 0x7 binary upload must be rejected with HTTP 422: " + uploadRes.body());
+        assertTrue(uploadRes.body().contains("ERR_UNSUPPORTED_STRATEGY"));
 
-        JsonNode artifactJson = objectMapper.readTree(uploadRes.body());
-        String artifactCasHash = artifactJson.get("casHash").asText();
-        String expectedArtifactCasHash = HexFormat.of().formatHex(distinctHashBytes);
-        assertEquals(expectedArtifactCasHash, artifactCasHash, "Artifact CAS hash extracted from Strategy 0x7 header must match");
+        // 5. Verify uploading identical Strategy 0x8 schema returns HTTP 200 IdempotentCollision with matching CAS hash
+        byte[] schemaBytes = schemaSource.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.allocate(256 + schemaBytes.length).order(ByteOrder.LITTLE_ENDIAN);
+        buf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
+        buf.putInt(schemaBytes.length - 1);
+        buf.put(schemaBytes);
+        buf.put((byte) 0x00); // 1-byte offset flag
+        int payloadStart = buf.position();
+        int arenaOffset = payloadStart + 3;
+        buf.put((byte) arenaOffset); // defsOffset > 0
+        buf.put((byte) 0);           // typeOffset == 0
+        buf.put((byte) 0);           // bodyOffset == 0
+        buf.put((byte) 0x42);        // dummy defs payload byte at arenaOffset
 
-        // Retrieve raw binary artifact from CAS endpoint
+        int payloadLen = buf.position();
+        CRC32C crc0x8 = new CRC32C();
+        crc0x8.update(ByteBuffer.wrap(buf.array(), 0, payloadLen));
+        buf.putInt((int) crc0x8.getValue());
+
+        byte[] valid0x8Payload = new byte[buf.position()];
+        System.arraycopy(buf.array(), 0, valid0x8Payload, 0, valid0x8Payload.length);
+
+        HttpRequest idempUploadReq = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/artifacts/binary/" + schemaName))
+            .POST(HttpRequest.BodyPublishers.ofByteArray(valid0x8Payload))
+            .build();
+
+        HttpResponse<String> idempUploadRes = httpClient.send(idempUploadReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(200, idempUploadRes.statusCode(), "Idempotent upload must return HTTP 200: " + idempUploadRes.body());
+
+        JsonNode idempJson = objectMapper.readTree(idempUploadRes.body());
+        assertEquals(casHash, idempJson.get("casHash").asText(), "Canonical CAS hash of Strategy 0x8 upload must match text upload");
+
+        // 6. Verify distinct Strategy 0x8 binary schema upload returns HTTP 201 and roundtrips
+        String distinctSchema = """
+            {
+              :defs {
+                :package :com/example/iot {
+                  :SensorId { #unsigned #size 64 } :Int
+                }
+              }
+            }
+            """;
+        byte[] distinctBytes = distinctSchema.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer distinctBuf = ByteBuffer.allocate(256 + distinctBytes.length).order(ByteOrder.LITTLE_ENDIAN);
+        distinctBuf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
+        distinctBuf.putInt(distinctBytes.length - 1);
+        distinctBuf.put(distinctBytes);
+        distinctBuf.put((byte) 0x00);
+        int distinctStart = distinctBuf.position();
+        int distinctArena = distinctStart + 3;
+        distinctBuf.put((byte) distinctArena);
+        distinctBuf.put((byte) 0);
+        distinctBuf.put((byte) 0);
+        distinctBuf.put((byte) 0x42);
+
+        CRC32C distinctCrc = new CRC32C();
+        distinctCrc.update(ByteBuffer.wrap(distinctBuf.array(), 0, distinctBuf.position()));
+        distinctBuf.putInt((int) distinctCrc.getValue());
+
+        byte[] distinctPayload = new byte[distinctBuf.position()];
+        System.arraycopy(distinctBuf.array(), 0, distinctPayload, 0, distinctPayload.length);
+
+        String distinctName = "SensorTelemetry.stvn_inclf";
+        HttpRequest uploadDistinctReq = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/artifacts/binary/" + distinctName))
+            .POST(HttpRequest.BodyPublishers.ofByteArray(distinctPayload))
+            .build();
+
+        HttpResponse<String> uploadDistinctRes = httpClient.send(uploadDistinctReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, uploadDistinctRes.statusCode(), "Distinct Strategy 0x8 upload must return HTTP 201: " + uploadDistinctRes.body());
+
+        JsonNode distinctJson = objectMapper.readTree(uploadDistinctRes.body());
+        String distinctCasHash = distinctJson.get("casHash").asText();
+
+        // Retrieve raw binary artifact from CAS endpoint with Accept: application/stvn-bin
         HttpRequest fetchArtifactReq = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/cas/" + artifactCasHash))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/cas/" + distinctCasHash))
+            .header("Accept", "application/stvn-bin")
             .GET()
             .build();
 
         HttpResponse<byte[]> fetchArtifactRes = httpClient.send(fetchArtifactReq, HttpResponse.BodyHandlers.ofByteArray());
         assertEquals(200, fetchArtifactRes.statusCode());
         assertTrue(fetchArtifactRes.headers().firstValue("Content-Type").orElse("").contains("application/stvn-bin"));
-        assertArrayEquals(artifactBytes, fetchArtifactRes.body(), "Stored binary artifact must be streamed back byte-for-byte");
+        assertArrayEquals(distinctPayload, fetchArtifactRes.body(), "Stored binary artifact must be streamed back byte-for-byte");
     }
 
     @Test
