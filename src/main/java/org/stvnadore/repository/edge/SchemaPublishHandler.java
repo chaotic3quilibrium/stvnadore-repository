@@ -31,6 +31,15 @@ import org.stvnadore.core.binary.StvnSchemaHasher;
  * HTTP request handler managing schema publication and retrieval REST endpoints.
  */
 public class SchemaPublishHandler implements Handler {
+    /** Canonical media type for UTF-8 textual STVN documents ({@code application/stvn}). */
+    public static final String MEDIA_TYPE_STVN = "application/stvn";
+
+    /** Canonical media type for binary STVN streams ({@code application/stvn-bin}). */
+    public static final String MEDIA_TYPE_STVN_BIN = "application/stvn-bin";
+
+    /** Canonical media type for JSON diagnostic and metadata responses ({@code application/json}). */
+    public static final String MEDIA_TYPE_JSON = "application/json";
+
     private final SchemaRepositoryEngine engine;
     private final CasStoragePort casStoragePort;
 
@@ -82,16 +91,16 @@ public class SchemaPublishHandler implements Handler {
         }
 
         String lowerContentType = contentType.toLowerCase();
-        if (lowerContentType.startsWith("application/stvn-bin") || lowerContentType.startsWith("application/octet-stream")) {
+        if (lowerContentType.startsWith(MEDIA_TYPE_STVN_BIN) || lowerContentType.startsWith("application/octet-stream")) {
             handleBinaryUpload(ctx);
             return;
         }
 
-        if (!lowerContentType.startsWith("application/stvn")) {
+        if (!lowerContentType.startsWith(MEDIA_TYPE_STVN)) {
             ctx.status(415);
             ctx.json(Map.of(
                 "error", "Unsupported Media Type",
-                "message", "Request Content-Type must be application/stvn or application/stvn-bin"
+                "message", "Request Content-Type must be " + MEDIA_TYPE_STVN + " or " + MEDIA_TYPE_STVN_BIN
             ));
             return;
         }
@@ -252,10 +261,10 @@ public class SchemaPublishHandler implements Handler {
             envelopeBytes[2] == (byte) 'V' && envelopeBytes[3] == (byte) 'N';
 
         String acceptHeader = ctx.header("Accept");
-        boolean requestsBinary = acceptHeader != null && acceptHeader.toLowerCase().contains("application/stvn-bin");
+        boolean requestsBinary = acceptHeader != null && acceptHeader.toLowerCase().contains(MEDIA_TYPE_STVN_BIN);
 
         if (isStoredBinary) {
-            ctx.contentType("application/stvn-bin");
+            ctx.contentType(MEDIA_TYPE_STVN_BIN);
             ctx.result(envelopeBytes);
             return;
         }
@@ -301,7 +310,7 @@ public class SchemaPublishHandler implements Handler {
                     binaryResponse[binaryResponse.length - 2] = (byte) ((crcVal >>> 16) & 0xFF);
                     binaryResponse[binaryResponse.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
 
-                    ctx.contentType("application/stvn-bin");
+                    ctx.contentType(MEDIA_TYPE_STVN_BIN);
                     ctx.result(binaryResponse);
                     return;
                 }
@@ -311,7 +320,7 @@ public class SchemaPublishHandler implements Handler {
         }
 
         // Return raw application/stvn schema stream
-        ctx.contentType("application/stvn");
+        ctx.contentType(MEDIA_TYPE_STVN);
         ctx.result(responsePayload);
     }
 }

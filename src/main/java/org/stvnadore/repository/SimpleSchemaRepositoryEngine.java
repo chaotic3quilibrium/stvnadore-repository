@@ -6,6 +6,7 @@ import org.stvnadore.core.StvnCompilationResult;
 import org.stvnadore.core.StvnCompiler;
 import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnSchemaFlattener;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.core.binary.SchemaIdentityStrategy;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer;
@@ -29,6 +30,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Production implementation of {@link SchemaRepositoryEngine}.
@@ -88,7 +90,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         // Gate 1 (Filename Hygiene): Enforce that schema filename strictly ends with .stvn_inclf
         if (!schemaName.endsWith(".stvn_inclf")) {
             return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema filename must strictly end with '.stvn_inclf': " + schemaName, 1, 1)
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema filename must strictly end with '.stvn_inclf': " + schemaName, 1, 1, 0, schemaName.length())
             ));
         }
 
@@ -101,7 +103,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
                     if (d.errorCode().isPresent() && !msg.contains(d.errorCode().get())) {
                         msg = d.errorCode().get() + ": " + msg;
                     }
-                    return new CompileDiagnostic(msg, d.line(), d.column());
+                    return new CompileDiagnostic(msg, d.line(), d.column(), d.startOffset(), d.endOffset());
                 })
                 .toList();
             return new PublishResult.ValidationError(compileDiagnostics);
@@ -116,26 +118,26 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
 
         if (docCtx.documentBody() == null || docCtx.documentBody().defsEntry() == null) {
             return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema root must contain strictly a :defs section", 1, 1)
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema root must contain strictly a " + StvnVocabulary.KEYWORD_DEFS + " section", 1, 1)
             ));
         }
 
         if (docCtx.documentBody().typeEntry() != null) {
             return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level :type section is prohibited in flat schema document", 1, 1)
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level " + StvnVocabulary.KEYWORD_TYPE + " section is prohibited in flat schema document", 1, 1)
             ));
         }
 
         if (docCtx.documentBody().bodyEntry() != null) {
             return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level :body section is prohibited in flat schema document", 1, 1)
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Top-level " + StvnVocabulary.KEYWORD_BODY + " section is prohibited in flat schema document", 1, 1)
             ));
         }
 
         for (var element : docCtx.documentBody().defsEntry().defsElement()) {
             if (element.includeStmt() != null) {
                 return new PublishResult.ValidationError(List.of(
-                    new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_inclf) cannot contain :include directives", 1, 1)
+                    new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_inclf) cannot contain " + StvnVocabulary.KEYWORD_INCLUDE + " directives", 1, 1)
                 ));
             }
         }
@@ -330,5 +332,49 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
      */
     public CasStoragePort getCasStoragePort() {
         return casStoragePort;
+    }
+
+    private static final Set<String> BASE_SCALAR_TYPES = Set.of(
+        StvnVocabulary.TYPE_BOOLEAN,
+        StvnVocabulary.TYPE_INT,
+        StvnVocabulary.TYPE_FLOAT,
+        StvnVocabulary.TYPE_STRING,
+        StvnVocabulary.TYPE_TIME_EPOCH,
+        StvnVocabulary.TYPE_DATE_TIME
+    );
+
+    /**
+     * Tests whether a candidate type keyword exactly equals one of the 6 canonical base scalar primitives.
+     * Enforces exact string equality via {@link StvnVocabulary} base scalar types.
+     *
+     * @param typeStr the candidate type keyword to evaluate
+     * @return true if the type string exactly equals a base scalar type; false otherwise
+     */
+    public static boolean isBaseScalarType(String typeStr) {
+        return typeStr != null && BASE_SCALAR_TYPES.contains(typeStr);
+    }
+
+    /**
+     * Tests whether a type string matches a composite constructor with strict delimiter discipline.
+     * Prevents nominal prefix collisions with user-defined nominal types.
+     *
+     * @param typeStr the candidate type string to evaluate
+     * @param constructorName the canonical constructor keyword to match (e.g. {@code :Seq}, {@code :Map})
+     * @return true if the candidate matches the constructor boundary; false otherwise
+     */
+    public static boolean isConstructorMatch(String typeStr, String constructorName) {
+        if (typeStr == null || constructorName == null) return false;
+        if (typeStr.equals(constructorName)) return true;
+        if (typeStr.startsWith(constructorName)) {
+            int prefixLen = constructorName.length();
+            if (typeStr.length() > prefixLen) {
+                char nextChar = typeStr.charAt(prefixLen);
+                if (StvnVocabulary.TYPE_ENUM.equals(constructorName)) {
+                    return nextChar == '[' || Character.isWhitespace(nextChar);
+                }
+                return nextChar == '(' || Character.isWhitespace(nextChar);
+            }
+        }
+        return false;
     }
 }

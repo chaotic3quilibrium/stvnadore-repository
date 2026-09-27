@@ -1,6 +1,7 @@
 package org.stvnadore.repository.infrastructure;
 
 import org.stvnadore.core.StvnCompiler;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.core.ir.StvnValue;
 
 import java.util.Optional;
@@ -25,12 +26,12 @@ public class StvnCasPackager {
     public static String packageEnvelope(String schemaName, String casHash, String sourceText) {
         String tag = "SHA256-" + casHash;
         return "{\n" +
-               "  :defs {\n" +
-               "    :SchemaName :String\n" +
-               "    :StvnInclf { #preserveIndent } :String\n" +
+               "  " + StvnVocabulary.KEYWORD_DEFS + " {\n" +
+               "    :SchemaName " + StvnVocabulary.TYPE_STRING + "\n" +
+               "    :StvnInclf { " + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " } " + StvnVocabulary.TYPE_STRING + "\n" +
                "  }\n" +
-               "  :type :Tuple(:SchemaName :StvnInclf)\n" +
-               "  :body (\n" +
+               "  " + StvnVocabulary.KEYWORD_TYPE + " " + StvnVocabulary.TYPE_TUPLE + "(:SchemaName :StvnInclf)\n" +
+               "  " + StvnVocabulary.KEYWORD_BODY + " (\n" +
                "    \"" + schemaName + "\"\n" +
                "    \"\"\"[" + tag + "]\n" +
                sourceText + "\n" +

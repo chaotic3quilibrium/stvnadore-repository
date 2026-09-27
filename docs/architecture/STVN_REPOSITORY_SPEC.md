@@ -44,6 +44,17 @@ The STVN ecosystem divides architectural governance between two authoritative sp
    - Nominal identity hashing and the Nominal Bijectivity Invariant ($1:1$ Law).
    - Forensic recovery, projection sweeping, and quarantine protocols.
 
+### 1.3 Strict Payload & Intermediate File Exclusions (Non-Goals)
+
+The schema repository is strictly a Content-Addressable Storage (CAS) registry for nominal schema definitions. It is NOT an arbitrary document or payload database.
+
+The following document categories are strictly excluded from repository ingestion:
+1. **Standalone Instance Documents (`.stvn`):** Contain `:type` and `:body` payload instances. Payloads must never be registered in the schema catalog.
+2. **Flattened Instance Documents (`.stvn_f`):** Hermetic data payloads. Data payloads belong in application databases or object stores, not the schema registry.
+3. **Modular Schema Leaves (`.stvn_incl`):** Unflattened schema fragments with `:include` directives. Clients must flatten modular schemas into hermetic `.stvn_inclf` files before publishing.
+
+The repository accepts exclusively hermetic, flattened schema leaf files (`.stvn_inclf`).
+
 ---
 
 ## 2. The Nominal Bijectivity Invariant ($1:1$ Law)
@@ -268,7 +279,14 @@ Ingress handlers reject payloads exceeding `StvnStringCapacityUtils.DEFAULT_UNBO
 ```
 
 ### 5.2 Filename Extension Hygiene
-Schema filenames must strictly end with the `.stvn_inclf` extension. Non-compliant filenames are rejected with HTTP 422:
+
+Schema filenames must strictly end with the `.stvn_inclf` extension. The repository enforces fail-closed perimeter rejection on all other extensions:
+- `.stvn` $\rightarrow$ Rejected (Instance data document).
+- `.stvn_f` $\rightarrow$ Rejected (Flattened instance payload).
+- `.stvn_incl` $\rightarrow$ Rejected (Unflattened modular schema).
+- Bare identifiers without extension $\rightarrow$ Rejected.
+
+Non-compliant filenames are rejected at Gate 1 with HTTP 422:
 ```json
 [
   {

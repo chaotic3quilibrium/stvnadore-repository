@@ -7,9 +7,13 @@ CREATE TABLE IF NOT EXISTS version_catalog (
     cas_hash         VARCHAR(64)  NOT NULL,
     created_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_version_catalog PRIMARY KEY (schema_name),
+    -- Relational enforcement anchor of the Nominal Bijectivity Invariant (1:1 Law):
+    -- Prevents alias spoofing and namespace hijacking.
     CONSTRAINT uq_version_catalog_cas_hash UNIQUE (cas_hash)
 );
 
+-- Reverse-lookup index for fast cas_hash resolution during pre-write alias conflict checks:
+CREATE INDEX IF NOT EXISTS idx_version_catalog_cas_hash ON version_catalog (cas_hash);
 CREATE INDEX IF NOT EXISTS idx_version_catalog_shape ON version_catalog (shape_signature);
 
 CREATE TABLE IF NOT EXISTS schema_source_audit (

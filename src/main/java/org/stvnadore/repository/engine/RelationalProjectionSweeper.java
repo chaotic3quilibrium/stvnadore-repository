@@ -10,6 +10,7 @@ import org.stvnadore.core.StvnCompiler;
 import org.stvnadore.core.StvnDiagnostic;
 import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnSchemaFlattener;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.core.ir.StvnValue;
 import org.stvnadore.core.parser.StvnLexer;
 import org.stvnadore.core.parser.StvnParser;
@@ -149,7 +150,7 @@ public class RelationalProjectionSweeper implements Runnable {
                             || d.message().contains("cannot contain include statements")
                             || d.message().contains("ERR_INCLUDES_PROHIBITED"));
                     if (isIllegalInclude) {
-                        logger.error("Inner schema contains illegal :include directive: {}", schemaName);
+                        logger.error("Inner schema contains illegal " + StvnVocabulary.KEYWORD_INCLUDE + " directive: {}", schemaName);
                         quarantine(casHash, "ILLEGAL_INCLUDES_IN_FLAT_SCHEMA");
                     } else {
                         logger.error("Inner schema compilation diagnostics detected for {}: {}", schemaName, innerResult.diagnostics());
@@ -167,7 +168,7 @@ public class RelationalProjectionSweeper implements Runnable {
 
                 if (innerDocCtx.documentBody() == null || innerDocCtx.documentBody().defsEntry() == null ||
                     innerDocCtx.documentBody().typeEntry() != null || innerDocCtx.documentBody().bodyEntry() != null) {
-                    logger.error("Inner schema violated AST structure invariant for {}: must contain strictly :defs", schemaName);
+                    logger.error("Inner schema violated AST structure invariant for {}: must contain strictly " + StvnVocabulary.KEYWORD_DEFS, schemaName);
                     quarantine(casHash, "MALFORMED_INNER_STRUCTURE");
                     continue;
                 }
@@ -175,7 +176,7 @@ public class RelationalProjectionSweeper implements Runnable {
                 boolean hasIncludes = innerDocCtx.documentBody().defsEntry().defsElement().stream()
                     .anyMatch(el -> el.includeStmt() != null);
                 if (hasIncludes) {
-                    logger.error("Inner schema contains illegal :include directive: {}", schemaName);
+                    logger.error("Inner schema contains illegal " + StvnVocabulary.KEYWORD_INCLUDE + " directive: {}", schemaName);
                     quarantine(casHash, "ILLEGAL_INCLUDES_IN_FLAT_SCHEMA");
                     continue;
                 }
