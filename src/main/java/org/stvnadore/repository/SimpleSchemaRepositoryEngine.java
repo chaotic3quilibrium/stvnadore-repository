@@ -30,7 +30,6 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Production implementation of {@link SchemaRepositoryEngine}.
@@ -323,58 +322,5 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         Optional<SchemaMetadata> dbResult = indexRepositoryPort.findByShape(schemaName, shapeSignature);
         dbResult.ifPresent(versionCatalogCache::put);
         return dbResult;
-    }
-
-    /**
-     * Returns the underlying CAS storage port instance.
-     *
-     * @return the CAS storage port
-     */
-    public CasStoragePort getCasStoragePort() {
-        return casStoragePort;
-    }
-
-    private static final Set<String> BASE_SCALAR_TYPES = Set.of(
-        StvnVocabulary.TYPE_BOOLEAN,
-        StvnVocabulary.TYPE_INT,
-        StvnVocabulary.TYPE_FLOAT,
-        StvnVocabulary.TYPE_STRING,
-        StvnVocabulary.TYPE_TIME_EPOCH,
-        StvnVocabulary.TYPE_DATE_TIME
-    );
-
-    /**
-     * Tests whether a candidate type keyword exactly equals one of the 6 canonical base scalar primitives.
-     * Enforces exact string equality via {@link StvnVocabulary} base scalar types.
-     *
-     * @param typeStr the candidate type keyword to evaluate
-     * @return true if the type string exactly equals a base scalar type; false otherwise
-     */
-    public static boolean isBaseScalarType(String typeStr) {
-        return typeStr != null && BASE_SCALAR_TYPES.contains(typeStr);
-    }
-
-    /**
-     * Tests whether a type string matches a composite constructor with strict delimiter discipline.
-     * Prevents nominal prefix collisions with user-defined nominal types.
-     *
-     * @param typeStr the candidate type string to evaluate
-     * @param constructorName the canonical constructor keyword to match (e.g. {@code :Seq}, {@code :Map})
-     * @return true if the candidate matches the constructor boundary; false otherwise
-     */
-    public static boolean isConstructorMatch(String typeStr, String constructorName) {
-        if (typeStr == null || constructorName == null) return false;
-        if (typeStr.equals(constructorName)) return true;
-        if (typeStr.startsWith(constructorName)) {
-            int prefixLen = constructorName.length();
-            if (typeStr.length() > prefixLen) {
-                char nextChar = typeStr.charAt(prefixLen);
-                if (StvnVocabulary.TYPE_ENUM.equals(constructorName)) {
-                    return nextChar == '[' || Character.isWhitespace(nextChar);
-                }
-                return nextChar == '(' || Character.isWhitespace(nextChar);
-            }
-        }
-        return false;
     }
 }

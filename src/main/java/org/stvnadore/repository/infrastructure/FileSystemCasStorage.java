@@ -67,13 +67,4 @@ public class FileSystemCasStorage implements CasStoragePort {
         String suffix = casHash.substring(2);
         return root.resolve(prefix).resolve(suffix + ".stvn_cas");
     }
-
-    /**
-     * Returns the root storage directory path.
-     *
-     * @return root storage directory
-     */
-    public Path getRoot() {
-        return root;
-    }
 }

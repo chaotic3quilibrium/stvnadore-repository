@@ -11,7 +11,6 @@ import org.stvnadore.core.binary.exceptions.UnsupportedEncodingStrategyException
 import org.stvnadore.core.ir.StvnValue;
 import org.stvnadore.core.utils.StvnStringCapacityUtils;
 import org.stvnadore.core.validation.MalformedPayloadException;
-import org.stvnadore.repository.SimpleSchemaRepositoryEngine;
 import org.stvnadore.repository.domain.PublishRequest;
 import org.stvnadore.repository.domain.PublishResult;
 import org.stvnadore.repository.domain.SchemaMetadata;
@@ -37,9 +36,6 @@ public class SchemaPublishHandler implements Handler {
     /** Canonical media type for binary STVN streams ({@code application/stvn-bin}). */
     public static final String MEDIA_TYPE_STVN_BIN = "application/stvn-bin";
 
-    /** Canonical media type for JSON diagnostic and metadata responses ({@code application/json}). */
-    public static final String MEDIA_TYPE_JSON = "application/json";
-
     private final SchemaRepositoryEngine engine;
     private final CasStoragePort casStoragePort;
 
@@ -52,18 +48,6 @@ public class SchemaPublishHandler implements Handler {
     public SchemaPublishHandler(SchemaRepositoryEngine engine, CasStoragePort casStoragePort) {
         this.engine = engine;
         this.casStoragePort = casStoragePort;
-    }
-
-    /**
-     * Convenience constructor extracting the CAS storage port from the engine if available.
-     *
-     * @param engine the schema repository engine
-     */
-    public SchemaPublishHandler(SchemaRepositoryEngine engine) {
-        this(
-            engine,
-            (engine instanceof SimpleSchemaRepositoryEngine simpleEngine) ? simpleEngine.getCasStoragePort() : null
-        );
     }
 
     /**

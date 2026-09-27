@@ -51,17 +51,12 @@ public class StvnCasPackagerTest {
     }
 
     @Test
-    public void testUnpackEnvelopeSuccess() {
+    public void testUnpackSourceTextSuccess() {
         String schemaName = "order-events.stvn_inclf";
         String casHash = "cafebabedeadbeef0123456789abcdefcafebabedeadbeef0123456789abcdef";
         String sourceText = "{\n  :defs {\n    :OrderId { #unsigned #size 64 } :Int\n  }\n}";
 
         String envelope = StvnCasPackager.packageEnvelope(schemaName, casHash, sourceText);
-
-        Optional<StvnCasPackager.EnvelopeContent> unpacked = StvnCasPackager.unpackEnvelope(envelope);
-        assertTrue(unpacked.isPresent());
-        assertEquals(schemaName, unpacked.get().schemaName());
-        assertEquals(sourceText, unpacked.get().sourceText());
 
         Optional<String> unpackedSource = StvnCasPackager.unpackSourceText(envelope);
         assertTrue(unpackedSource.isPresent());
@@ -69,10 +64,7 @@ public class StvnCasPackagerTest {
     }
 
     @Test
-    public void testUnpackEnvelopeInvalidSyntax() {
-        Optional<StvnCasPackager.EnvelopeContent> unpacked = StvnCasPackager.unpackEnvelope("invalid syntax");
-        assertTrue(unpacked.isEmpty());
-
+    public void testUnpackSourceTextInvalidSyntax() {
         Optional<String> unpackedSource = StvnCasPackager.unpackSourceText("invalid syntax");
         assertTrue(unpackedSource.isEmpty());
     }

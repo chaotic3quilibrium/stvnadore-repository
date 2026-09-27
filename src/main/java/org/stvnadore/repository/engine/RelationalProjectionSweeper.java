@@ -16,7 +16,6 @@ import org.stvnadore.core.parser.StvnLexer;
 import org.stvnadore.core.parser.StvnParser;
 import org.stvnadore.repository.domain.DuplicateIndexException;
 import org.stvnadore.repository.domain.SchemaMetadata;
-import org.stvnadore.repository.infrastructure.FileSystemCasStorage;
 import org.stvnadore.repository.ports.CasDirectoryScannerPort;
 import org.stvnadore.repository.ports.CasStoragePort;
 import org.stvnadore.repository.ports.IndexRepositoryPort;
@@ -25,7 +24,6 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.MessageDigest;
 import java.util.HexFormat;
@@ -63,26 +61,6 @@ public class RelationalProjectionSweeper implements Runnable {
         this.indexRepository = indexRepository;
         this.scanner = scanner;
         this.casRoot = casRoot;
-    }
-
-    /**
-     * Constructs a RelationalProjectionSweeper with default root resolution.
-     *
-     * @param casStorage the CAS storage port
-     * @param indexRepository the relational index repository port
-     * @param scanner the CAS directory scanner port
-     */
-    public RelationalProjectionSweeper(
-            CasStoragePort casStorage,
-            IndexRepositoryPort indexRepository,
-            CasDirectoryScannerPort scanner
-    ) {
-        this(
-            casStorage,
-            indexRepository,
-            scanner,
-            (casStorage instanceof FileSystemCasStorage fsStorage) ? fsStorage.getRoot() : Paths.get("data/cas")
-        );
     }
 
     @Override

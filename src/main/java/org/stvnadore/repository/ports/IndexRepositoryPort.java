@@ -19,16 +19,6 @@ public interface IndexRepositoryPort {
     void save(SchemaMetadata metadata, String sourceText) throws DuplicateIndexException;
 
     /**
-     * Inserts a schema metadata record with empty source text.
-     *
-     * @param metadata the compiled schema metadata
-     * @throws DuplicateIndexException if unique index constraints are violated
-     */
-    default void save(SchemaMetadata metadata) throws DuplicateIndexException {
-        save(metadata, "");
-    }
-
-    /**
      * Checks if a schema record exists with the given 64-character CAS hash.
      *
      * @param casHash 64-character lowercase hex hash
