@@ -11,7 +11,6 @@ import org.stvnadore.core.binary.SchemaIdentityStrategy;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer;
 import org.stvnadore.core.binary.StvnSchemaHasher;
-import org.stvnadore.core.utils.StvnStringCapacityUtils;
 import org.stvnadore.core.ir.StvnValue;
 import org.stvnadore.core.parser.StvnLexer;
 import org.stvnadore.core.parser.StvnParser;
@@ -90,7 +89,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
                     );
                 }
                 long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
-                if (textLenLong > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY || 9 + textLenLong > payload.length) {
+                if (textLenLong > StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY || 9 + textLenLong > payload.length) {
                     throw new org.stvnadore.core.validation.MalformedPayloadException("Malformed Strategy 0x8 payload: invalid inlined schema length " + textLenLong);
                 }
                 String inlinedText = new String(payload, 9, (int) textLenLong, StandardCharsets.UTF_8);
@@ -110,9 +109,9 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         }
 
         // Perimeter Gate: Enforce centralized string capacity bounds (16 MiB)
-        if (sourceText.length() > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
+        if (sourceText.length() > StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
             return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("ERR_CAPACITY_OVERFLOW: Payload exceeds maximum allowed string capacity: " + StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + " characters", 1, 1)
+                new CompileDiagnostic("ERR_CAPACITY_OVERFLOW: Payload exceeds maximum allowed string capacity: " + StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + " characters", 1, 1)
             ));
         }
 
@@ -257,9 +256,9 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         }
 
         // Perimeter Gate: Enforce centralized capacity limit on binary payload (16 MiB)
-        if (binaryPayload.length > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
+        if (binaryPayload.length > StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
             return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("ERR_CAPACITY_OVERFLOW: Binary payload exceeds maximum allowed capacity: " + StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + " bytes", 1, 1)
+                new CompileDiagnostic("ERR_CAPACITY_OVERFLOW: Binary payload exceeds maximum allowed capacity: " + StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + " bytes", 1, 1)
             ));
         }
 

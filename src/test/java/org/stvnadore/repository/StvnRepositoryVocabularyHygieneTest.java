@@ -129,4 +129,26 @@ public class StvnRepositoryVocabularyHygieneTest {
 
         assertTrue(violations.isEmpty(), "Found raw token string literals in src/main/java:\n" + String.join("\n", violations));
     }
+
+    @Test
+    @DisplayName("HYGIENE-02: Zero references to obsolete StvnStringCapacityUtils across workspace")
+    void testZeroObsoleteCapacityUtilsReferences() throws IOException {
+        Path rootSrc = Paths.get("src");
+        List<String> violations = new ArrayList<>();
+        try (Stream<Path> stream = Files.walk(rootSrc)) {
+            List<Path> javaFiles = stream.filter(Files::isRegularFile)
+                                         .filter(p -> p.toString().endsWith(".java"))
+                                         .filter(p -> !p.getFileName().toString().equals("StvnRepositoryVocabularyHygieneTest.java"))
+                                         .toList();
+            for (Path file : javaFiles) {
+                List<String> lines = Files.readAllLines(file);
+                for (int i = 0; i < lines.size(); i++) {
+                    if (lines.get(i).contains("StvnStringCapacityUtils")) {
+                        violations.add(file.toString() + ":" + (i + 1) + " imports or references deleted StvnStringCapacityUtils");
+                    }
+                }
+            }
+        }
+        assertTrue(violations.isEmpty(), "Found references to deleted StvnStringCapacityUtils:\n" + String.join("\n", violations));
+    }
 }

@@ -3,7 +3,7 @@ package org.stvnadore.repository.edge;
 import io.javalin.http.Context;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.stvnadore.core.utils.StvnStringCapacityUtils;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.repository.domain.*;
 import org.stvnadore.repository.infrastructure.StvnCasPackager;
 import org.stvnadore.repository.ports.CasStoragePort;
@@ -290,7 +290,7 @@ public class SchemaPublishHandlerTest {
     @Test
     public void testPublishRejectsCapacityOverflowWithHttp422() throws Exception {
         String name = "large.stvn_inclf";
-        String oversizedBody = "x".repeat(StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + 10);
+        String oversizedBody = "x".repeat(StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + 10);
 
         when(ctx.contentType()).thenReturn("application/stvn");
         when(ctx.pathParam("name")).thenReturn(name);
@@ -305,7 +305,7 @@ public class SchemaPublishHandlerTest {
     @Test
     public void testPublishBinaryRejectsCapacityOverflowWithHttp422() {
         String name = "large.stvn_bin";
-        byte[] oversizedBytes = new byte[StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + 10];
+        byte[] oversizedBytes = new byte[StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + 10];
 
         when(ctx.pathParam("name")).thenReturn(name);
         when(ctx.bodyAsBytes()).thenReturn(oversizedBytes);

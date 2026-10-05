@@ -4,7 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.stvnadore.core.binary.SchemaIdentityStrategy;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
-import org.stvnadore.core.utils.StvnStringCapacityUtils;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.repository.domain.*;
 import org.stvnadore.repository.ports.CasStoragePort;
 import org.stvnadore.repository.ports.IndexRepositoryPort;
@@ -314,7 +314,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishRejectsPayloadExceedingCapacityBound() {
-        String largePayload = "a".repeat(StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + 1);
+        String largePayload = "a".repeat(StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + 1);
         PublishRequest request = new PublishRequest("overflow.stvn_inclf", largePayload);
 
         PublishResult result = engine.publish(request);
@@ -327,7 +327,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishBinaryRejectsPayloadExceedingCapacityBound() {
-        byte[] oversizedBytes = new byte[StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + 1];
+        byte[] oversizedBytes = new byte[StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + 1];
         PublishRequest request = new PublishRequest("overflow.stvn_bin", oversizedBytes);
 
         PublishResult result = engine.publishBinary(request, mock(org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer.class));

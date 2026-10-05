@@ -2,6 +2,7 @@ package org.stvnadore.repository.infrastructure;
 
 import org.junit.jupiter.api.Test;
 import org.stvnadore.core.StvnCompiler;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.core.ir.StvnValue;
 
 import java.util.Optional;
@@ -22,7 +23,7 @@ public class StvnCasPackagerTest {
         // Verify it contains the required headers and markers
         assertTrue(envelope.contains(":defs {"));
         assertTrue(envelope.contains(":SchemaName :String"));
-        assertTrue(envelope.contains(":StvnInclf { #preserveIndent } :String"));
+        assertTrue(envelope.contains(":StvnInclf { " + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE + " } " + StvnVocabulary.TYPE_STRING));
         assertTrue(envelope.contains(":type :Tuple(:SchemaName :StvnInclf)"));
         assertTrue(envelope.contains(":body ("));
         assertTrue(envelope.contains("\"user-profile.stvn_inclf\""));

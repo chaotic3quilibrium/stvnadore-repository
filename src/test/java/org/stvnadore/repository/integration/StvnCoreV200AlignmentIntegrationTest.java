@@ -10,7 +10,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.stvnadore.core.StvnSchemaFlattener;
-import org.stvnadore.core.utils.StvnStringCapacityUtils;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.repository.SimpleSchemaRepositoryEngine;
 import org.stvnadore.repository.edge.SchemaPublishHandler;
 import org.stvnadore.repository.infrastructure.ConcurrentHashMapCache;
@@ -329,7 +329,7 @@ public class StvnCoreV200AlignmentIntegrationTest {
     @Test
     @DisplayName("V200-ALIGN-08: Ingress rejects payloads exceeding 16 MiB capacity bound with HTTP 422 ERR_CAPACITY_OVERFLOW")
     void testCapacityOverflowRejection() throws Exception {
-        String oversized = "a".repeat(StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + 10);
+        String oversized = "a".repeat(StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + 10);
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/oversized.stvn_inclf"))
             .header("Content-Type", "application/stvn")

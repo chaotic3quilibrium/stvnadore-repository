@@ -28,7 +28,7 @@ public class StvnCasPackager {
         return "{\n" +
                "  " + StvnVocabulary.KEYWORD_DEFS + " {\n" +
                "    :SchemaName " + StvnVocabulary.TYPE_STRING + "\n" +
-               "    :StvnInclf { " + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " } " + StvnVocabulary.TYPE_STRING + "\n" +
+               "    :StvnInclf { " + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE + " } " + StvnVocabulary.TYPE_STRING + "\n" +
                "  }\n" +
                "  " + StvnVocabulary.KEYWORD_TYPE + " " + StvnVocabulary.TYPE_TUPLE + "(:SchemaName :StvnInclf)\n" +
                "  " + StvnVocabulary.KEYWORD_BODY + " (\n" +

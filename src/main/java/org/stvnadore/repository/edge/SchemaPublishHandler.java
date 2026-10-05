@@ -9,7 +9,7 @@ import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.binary.StvnBinaryEncoder;
 import org.stvnadore.core.binary.exceptions.UnsupportedEncodingStrategyException;
 import org.stvnadore.core.ir.StvnValue;
-import org.stvnadore.core.utils.StvnStringCapacityUtils;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.core.validation.MalformedPayloadException;
 import org.stvnadore.repository.domain.CompileDiagnostic;
 import org.stvnadore.repository.domain.PublishRequest;
@@ -95,11 +95,11 @@ public class SchemaPublishHandler implements Handler {
         String schemaName = ctx.pathParam("name");
         String sourceText = ctx.body();
 
-        if (sourceText.length() > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
+        if (sourceText.length() > StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
             ctx.status(422);
             ctx.json(Map.of(
                 "error", "Capacity Overflow",
-                "message", "Payload exceeds maximum allowed string capacity: " + StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + " characters"
+                "message", "Payload exceeds maximum allowed string capacity: " + StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + " characters"
             ));
             return;
         }
@@ -125,11 +125,11 @@ public class SchemaPublishHandler implements Handler {
             return;
         }
 
-        if (binaryBytes.length > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
+        if (binaryBytes.length > StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY) {
             ctx.status(422);
             ctx.json(Map.of(
                 "error", "Capacity Overflow",
-                "message", "Binary payload exceeds maximum allowed capacity: " + StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY + " bytes"
+                "message", "Binary payload exceeds maximum allowed capacity: " + StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + " bytes"
             ));
             return;
         }
@@ -184,7 +184,7 @@ public class SchemaPublishHandler implements Handler {
                 throw new MalformedPayloadException("Malformed Strategy 0x8 payload: truncated length prefix");
             }
             long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
-            if (textLenLong > StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY || 9 + textLenLong > binaryBytes.length - (hasTrailer ? 4 : 0)) {
+            if (textLenLong > StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY || 9 + textLenLong > binaryBytes.length - (hasTrailer ? 4 : 0)) {
                 throw new MalformedPayloadException("Malformed Strategy 0x8 payload: invalid inlined schema length " + textLenLong);
             }
             int textLen = (int) textLenLong;
@@ -320,7 +320,7 @@ public class SchemaPublishHandler implements Handler {
                 if (envelopeBytes.length >= 9 && (envelopeBytes[4] & 0x0F) == 0x08) {
                     ByteBuffer bb = ByteBuffer.wrap(envelopeBytes).order(ByteOrder.LITTLE_ENDIAN);
                     long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
-                    if (textLenLong <= StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY && 9 + textLenLong <= envelopeBytes.length) {
+                    if (textLenLong <= StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY && 9 + textLenLong <= envelopeBytes.length) {
                         String inlinedText = new String(envelopeBytes, 9, (int) textLenLong, StandardCharsets.UTF_8);
                         ctx.contentType(MEDIA_TYPE_STVN);
                         ctx.result(inlinedText);
