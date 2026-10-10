@@ -99,11 +99,16 @@ public class EnumSubsetCasIntegrationTest {
     @Test
     @DisplayName("SUBSET-CAS-01: Inclusive and exclusive subsets produce divergent CAS addresses without collision")
     void testEnumSubsetCasAddressIsolation() throws Exception {
-        String exclSchemaName = "TestableEnv.stvn_inclf";
-        String inclSchemaName = "PreReleaseEnv.stvn_inclf";
+        String exclSchemaName = "TestableEnv.stvn_d";
+        String inclSchemaName = "PreReleaseEnv.stvn_d";
 
         String exclText = """
             {
+              :meta {
+                #name "TestableEnv"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Environment :Enum [ #LOCAL #DEV #STAGING #CANARY #PROD ]
                 :TestableEnv { #filterExcl [ #PROD ] } :Environment
@@ -113,6 +118,11 @@ public class EnumSubsetCasIntegrationTest {
 
         String inclText = """
             {
+              :meta {
+                #name "PreReleaseEnv"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Environment :Enum [ #LOCAL #DEV #STAGING #CANARY #PROD ]
                 :PreReleaseEnv { #filterIncl [ #DEV #STAGING #CANARY ] } :Environment
@@ -151,7 +161,7 @@ public class EnumSubsetCasIntegrationTest {
 
         assertNotEquals(hash1, hash2, "Parent and sibling subsets must produce divergent CAS hashes");
 
-        // 4. Verify distinct physical CAS files exist on disk in 2/62 layout
+        // 4. Verify distinct physical CAS files exist on disk in 2/64 layout
         byte[] read1 = casStorage.read(hash1);
         byte[] read2 = casStorage.read(hash2);
 
@@ -176,11 +186,16 @@ public class EnumSubsetCasIntegrationTest {
     @Test
     @DisplayName("SUBSET-CAS-02: Root enum and subset schema produce divergent CAS hashes preventing overwrite")
     void testRootEnumVsSubsetDivergence() throws Exception {
-        String rootSchemaName = "EnvironmentRoot.stvn_inclf";
-        String subsetSchemaName = "PreReleaseEnv.stvn_inclf";
+        String rootSchemaName = "EnvironmentRoot.stvn_d";
+        String subsetSchemaName = "PreReleaseEnv.stvn_d";
 
         String rootEnumText = """
             {
+              :meta {
+                #name "EnvironmentRoot"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Environment :Enum [ #LOCAL #DEV #STAGING #CANARY #PROD ]
               }
@@ -189,6 +204,11 @@ public class EnumSubsetCasIntegrationTest {
 
         String subsetText = """
             {
+              :meta {
+                #name "PreReleaseEnv"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Environment :Enum [ #LOCAL #DEV #STAGING #CANARY #PROD ]
                 :PreReleaseEnv { #filterIncl [ #DEV #STAGING #CANARY ] } :Environment
@@ -220,9 +240,14 @@ public class EnumSubsetCasIntegrationTest {
     @Test
     @DisplayName("SUBSET-CAS-03: Transitive enum subset chain computes unique CAS fingerprint and stores cleanly")
     void testTransitiveChainCasPersistence() throws Exception {
-        String chainSchemaName = "ExecutionStatusChain.stvn_inclf";
+        String chainSchemaName = "ExecutionStatusChain.stvn_d";
         String chainText = """
             {
+              :meta {
+                #name "ExecutionStatusChain"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :TaskStatus :Enum [
                   #BACKLOG
@@ -262,6 +287,6 @@ public class EnumSubsetCasIntegrationTest {
 
         byte[] envelope = casStorage.read(chainHash);
         assertNotNull(envelope, "Transitive chain envelope must be present in CAS storage");
-        assertTrue(new String(envelope, StandardCharsets.UTF_8).contains("ExecutionStatusChain.stvn_inclf"));
+        assertTrue(new String(envelope, StandardCharsets.UTF_8).contains("ExecutionStatusChain.stvn_d"));
     }
 }

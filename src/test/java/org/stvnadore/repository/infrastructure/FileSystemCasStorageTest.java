@@ -30,16 +30,29 @@ public class FileSystemCasStorageTest {
 
         storage.write(casHash, content);
 
-        // Verify file exists under 2/62 sharded directory hierarchy: <root>/<prefix_2>/<suffix_62>.stvn_cas
+        // Verify file exists under sharded directory hierarchy: <root>/<prefix_2>/<full_hash_64>.cas.stvn
         String prefix = casHash.substring(0, 2);
-        String suffix = casHash.substring(2);
-        Path expectedFile = tempDir.resolve(prefix).resolve(suffix + ".stvn_cas");
+        Path expectedFile = tempDir.resolve(prefix).resolve(casHash + ".cas.stvn");
         assertTrue(Files.exists(expectedFile));
         assertArrayEquals(content, Files.readAllBytes(expectedFile));
 
         // Verify we can read it back via the storage port
         byte[] readContent = storage.read(casHash);
         assertArrayEquals(content, readContent);
+    }
+
+    @Test
+    public void testDualReadFallbackForLegacyStvnCas() throws IOException {
+        String casHash = "cafe16bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        byte[] legacyContent = "legacy content".getBytes(StandardCharsets.UTF_8);
+        String prefix = casHash.substring(0, 2);
+        String suffix = casHash.substring(2);
+        Path legacyDir = tempDir.resolve(prefix);
+        Files.createDirectories(legacyDir);
+        Files.write(legacyDir.resolve(suffix + ".stvn_cas"), legacyContent);
+
+        byte[] read = storage.read(casHash);
+        assertArrayEquals(legacyContent, read);
     }
 
     @Test

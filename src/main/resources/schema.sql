@@ -3,6 +3,7 @@
 
 CREATE TABLE IF NOT EXISTS version_catalog (
     schema_name      VARCHAR(255) NOT NULL,
+    domain           VARCHAR(255) NOT NULL DEFAULT 'default',
     shape_signature  TEXT         NOT NULL,
     cas_hash         VARCHAR(64)  NOT NULL,
     created_at       TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -11,6 +12,9 @@ CREATE TABLE IF NOT EXISTS version_catalog (
     -- Prevents alias spoofing and namespace hijacking.
     CONSTRAINT uq_version_catalog_cas_hash UNIQUE (cas_hash)
 );
+
+-- Compound index for fast domain and schema_name querying:
+CREATE INDEX IF NOT EXISTS idx_version_catalog_domain_name ON version_catalog (domain, schema_name);
 
 -- Reverse-lookup index for fast cas_hash resolution during pre-write alias conflict checks:
 CREATE INDEX IF NOT EXISTS idx_version_catalog_cas_hash ON version_catalog (cas_hash);

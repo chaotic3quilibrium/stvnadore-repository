@@ -11,6 +11,9 @@ import org.stvnadore.core.StvnDiagnostic;
 import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnSchemaFlattener;
 import org.stvnadore.core.StvnVocabulary;
+import org.stvnadore.core.ast.StvnDocument;
+import org.stvnadore.core.ast.StvnDocumentKind;
+import org.stvnadore.core.ast.StvnDocumentMeta;
 import org.stvnadore.core.ir.StvnValue;
 import org.stvnadore.core.parser.StvnLexer;
 import org.stvnadore.core.parser.StvnParser;
@@ -92,13 +95,18 @@ public class RelationalProjectionSweeper implements Runnable {
 
                 String envelopeText = new String(envelopeBytes, StandardCharsets.UTF_8);
 
-                StvnAnalysisResult<Optional<StvnValue>, List<StvnDiagnostic>> analysis = StvnCompiler.analyze(envelopeText);
+                StvnAnalysisResult<Optional<StvnDocument>, List<StvnDiagnostic>> analysis = StvnCompiler.analyze(envelopeText);
                 if (!analysis.diagnostics().isEmpty() || analysis.value().isEmpty()) {
                     quarantine(casHash, "CORRUPT_ENVELOPE");
                     continue;
                 }
 
-                StvnValue value = analysis.value().get();
+                StvnDocument doc = analysis.value().get();
+                if (doc.payload().isEmpty()) {
+                    quarantine(casHash, "CORRUPT_ENVELOPE");
+                    continue;
+                }
+                StvnValue value = doc.payload().get();
                 if (!(value instanceof StvnValue.StvnTuple tuple) || tuple.elements().size() < 2) {
                     quarantine(casHash, "INVALID_TUPLE_FORMAT");
                     continue;
@@ -113,15 +121,15 @@ public class RelationalProjectionSweeper implements Runnable {
                 String schemaName = nameVal.value();
                 String innerSourceText = sourceVal.value().trim();
 
-                // Gate 1 (Filename Hygiene): Embedded schema filename must strictly end with .stvn_inclf
-                if (!schemaName.endsWith(".stvn_inclf")) {
-                    logger.error("CAS schema filename does not end with .stvn_inclf: {}", schemaName);
+                // Gate 1 (Filename Hygiene): Embedded schema filename must strictly end with .stvn_d
+                if (!schemaName.endsWith(".stvn_d")) {
+                    logger.error("CAS schema filename does not end with .stvn_d: {}", schemaName);
                     quarantine(casHash, "INVALID_FILENAME_EXTENSION");
                     continue;
                 }
 
                 // Headless Validation: Verify inner schema compiles cleanly (STRICT catches tabs & syntax errors)
-                StvnCompilationResult<StvnValue> innerResult = StvnCompiler.compileToResult(innerSourceText, schemaName, StvnParserConfig.STRICT);
+                StvnCompilationResult<StvnDocument> innerResult = StvnCompiler.compileToResult(innerSourceText, schemaName, StvnParserConfig.STRICT);
                 if (innerResult.hasErrors()) {
                     boolean isIllegalInclude = innerResult.diagnostics().stream()
                         .anyMatch(d -> d.errorCode().filter("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT"::equals).isPresent()
@@ -134,6 +142,29 @@ public class RelationalProjectionSweeper implements Runnable {
                         logger.error("Inner schema compilation diagnostics detected for {}: {}", schemaName, innerResult.diagnostics());
                         quarantine(casHash, "INVALID_INNER_AST");
                     }
+                    continue;
+                }
+
+                StvnDocument innerDoc = innerResult.document().orElse(null);
+                if (innerDoc == null || innerDoc.meta().isEmpty()) {
+                    quarantine(casHash, "IDENTITY_MISMATCH");
+                    continue;
+                }
+                StvnDocumentMeta innerMeta = innerDoc.meta().get();
+                if (innerMeta.name().isEmpty() || innerMeta.domain().isEmpty() ||
+                    innerMeta.kind().isEmpty() || innerMeta.kind().get() != StvnDocumentKind.DEFS) {
+                    quarantine(casHash, "IDENTITY_MISMATCH");
+                    continue;
+                }
+                String domain = innerMeta.domain().get();
+                String stem = schemaName.endsWith(".stvn_d") ? schemaName.substring(0, schemaName.length() - ".stvn_d".length()) : schemaName;
+                String[] stemParts = stem.split("\\.");
+                if (!innerMeta.name().get().equals(stemParts[0])) {
+                    quarantine(casHash, "IDENTITY_MISMATCH");
+                    continue;
+                }
+                if (stemParts.length > 1 && !domain.equals(stemParts[1])) {
+                    quarantine(casHash, "IDENTITY_MISMATCH");
                     continue;
                 }
 
@@ -182,7 +213,7 @@ public class RelationalProjectionSweeper implements Runnable {
                 }
 
                 // Save to relational catalog with original source text
-                SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash);
+                SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash, domain);
                 indexRepository.save(metadata, innerSourceText);
                 logger.info("Successfully recovered projection for schema: {} (hash: {})", schemaName, casHash);
 
@@ -198,11 +229,13 @@ public class RelationalProjectionSweeper implements Runnable {
 
     private void quarantine(String casHash, String failureReason) {
         String prefix = casHash.substring(0, 2);
-        String suffix = casHash.substring(2);
-        Path sourceFile = casRoot.resolve(prefix).resolve(suffix + ".stvn_cas");
+        Path sourceFile = casRoot.resolve(prefix).resolve(casHash + ".cas.stvn");
+        if (!Files.exists(sourceFile)) {
+            sourceFile = casRoot.resolve(prefix).resolve(casHash.substring(2) + ".stvn_cas");
+        }
         Path quarantineDir = casRoot.resolve(".quarantine");
         long timestamp = System.currentTimeMillis();
-        String originalFilename = suffix + ".stvn_cas";
+        String originalFilename = casHash + ".cas.stvn";
         String quarantineFilename = originalFilename + "." + timestamp + "." + failureReason + ".quarantine";
         Path targetFile = quarantineDir.resolve(quarantineFilename);
 

@@ -25,19 +25,20 @@ public class StvnCasPackager {
      */
     public static String packageEnvelope(String schemaName, String casHash, String sourceText) {
         String tag = "SHA256-" + casHash;
-        return "{\n" +
-               "  " + StvnVocabulary.KEYWORD_DEFS + " {\n" +
-               "    :SchemaName " + StvnVocabulary.TYPE_STRING + "\n" +
-               "    :StvnInclf { " + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE + " } " + StvnVocabulary.TYPE_STRING + "\n" +
-               "  }\n" +
-               "  " + StvnVocabulary.KEYWORD_TYPE + " " + StvnVocabulary.TYPE_TUPLE + "(:SchemaName :StvnInclf)\n" +
-               "  " + StvnVocabulary.KEYWORD_BODY + " (\n" +
-               "    \"" + schemaName + "\"\n" +
-               "    \"\"\"[" + tag + "]\n" +
+        String targetName = schemaName;
+        if (targetName.endsWith(".stvn_inclf")) {
+            targetName = targetName.substring(0, targetName.length() - ".stvn_inclf".length());
+        }
+        if (!targetName.endsWith(".stvn_d")) {
+            targetName = targetName + ".stvn_d";
+        }
+        return "{:meta{#name \"" + casHash + "\"#domain \"cas\"#kind #BODY}" +
+               StvnVocabulary.KEYWORD_DEFS + "{:SchemaName " + StvnVocabulary.TYPE_STRING + " " +
+               ":StvnDef{" + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE_SHORT + "}" + StvnVocabulary.TYPE_STRING + "}" +
+               StvnVocabulary.KEYWORD_TYPE + " " + StvnVocabulary.TYPE_TUPLE + "(:SchemaName :StvnDef)" +
+               StvnVocabulary.KEYWORD_BODY + " (\"" + targetName + "\" \"\"\"[" + tag + "]\n" +
                sourceText + "\n" +
-               "    [" + tag + "]\"\"\"\n" +
-               "  )\n" +
-               "}";
+               "[" + tag + "]\"\"\")}";
     }
 
     /**
@@ -48,7 +49,7 @@ public class StvnCasPackager {
      */
     public static Optional<String> unpackSourceText(String envelopeText) {
         try {
-            Optional<StvnValue> compiled = StvnCompiler.compile(envelopeText);
+            Optional<StvnValue> compiled = StvnCompiler.compilePayload(envelopeText);
             if (compiled.isPresent() && compiled.get() instanceof StvnValue.StvnTuple tuple) {
                 if (tuple.elements().size() >= 2 && tuple.elements().get(1) instanceof StvnValue.StvnString sourceVal) {
                     return Optional.of(sourceVal.value().trim());

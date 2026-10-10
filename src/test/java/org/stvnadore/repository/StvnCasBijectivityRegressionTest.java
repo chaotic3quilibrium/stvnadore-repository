@@ -145,25 +145,25 @@ public class StvnCasBijectivityRegressionTest {
     void testBijectiveCasLookupsAcrossModernCanonicalTypes() throws Exception {
         Map<String, String> schemas = Map.ofEntries(
             // Sized Integers
-            Map.entry("schema_int_16.stvn_inclf", "{\n  :defs {\n    :Val { #size 16 } :Int\n  }\n}"),
-            Map.entry("schema_int_32.stvn_inclf", "{\n  :defs {\n    :Val { #size 32 } :Int\n  }\n}"),
-            Map.entry("schema_int_bare.stvn_inclf", "{\n  :defs {\n    :Val :Int\n  }\n}"),
-            Map.entry("schema_int_unsigned_32.stvn_inclf", "{\n  :defs {\n    :Val { #unsigned #size 32 } :Int\n  }\n}"),
+            Map.entry("schema_int_16.stvn_d", "{\n  :meta {\n    #name \"schema_int_16\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #size 16 } :Int\n  }\n}"),
+            Map.entry("schema_int_32.stvn_d", "{\n  :meta {\n    #name \"schema_int_32\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #size 32 } :Int\n  }\n}"),
+            Map.entry("schema_int_bare.stvn_d", "{\n  :meta {\n    #name \"schema_int_bare\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val :Int\n  }\n}"),
+            Map.entry("schema_int_unsigned_32.stvn_d", "{\n  :meta {\n    #name \"schema_int_unsigned_32\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #unsigned #size 32 } :Int\n  }\n}"),
 
             // Temporal Scales
-            Map.entry("schema_time_s.stvn_inclf", "{\n  :defs {\n    :Ts { #s } :TimeEpoch\n  }\n}"),
-            Map.entry("schema_time_ms.stvn_inclf", "{\n  :defs {\n    :Ts { #ms } :TimeEpoch\n  }\n}"),
-            Map.entry("schema_time_us.stvn_inclf", "{\n  :defs {\n    :Ts { #us } :TimeEpoch\n  }\n}"),
-            Map.entry("schema_time_ns.stvn_inclf", "{\n  :defs {\n    :Ts { #ns } :TimeEpoch\n  }\n}"),
+            Map.entry("schema_time_s.stvn_d", "{\n  :meta {\n    #name \"schema_time_s\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Ts { #s } :TimeEpoch\n  }\n}"),
+            Map.entry("schema_time_ms.stvn_d", "{\n  :meta {\n    #name \"schema_time_ms\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Ts { #ms } :TimeEpoch\n  }\n}"),
+            Map.entry("schema_time_us.stvn_d", "{\n  :meta {\n    #name \"schema_time_us\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Ts { #us } :TimeEpoch\n  }\n}"),
+            Map.entry("schema_time_ns.stvn_d", "{\n  :meta {\n    #name \"schema_time_ns\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Ts { #ns } :TimeEpoch\n  }\n}"),
 
             // Temporal Modes
-            Map.entry("schema_dt_offset.stvn_inclf", "{\n  :defs {\n    :Dt { #offset } :DateTime\n  }\n}"),
-            Map.entry("schema_dt_zoned.stvn_inclf", "{\n  :defs {\n    :Dt { #zoned } :DateTime\n  }\n}"),
-            Map.entry("schema_dt_audited.stvn_inclf", "{\n  :defs {\n    :Dt { #audited } :DateTime\n  }\n}"),
+            Map.entry("schema_dt_offset.stvn_d", "{\n  :meta {\n    #name \"schema_dt_offset\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Dt { #offset } :DateTime\n  }\n}"),
+            Map.entry("schema_dt_zoned.stvn_d", "{\n  :meta {\n    #name \"schema_dt_zoned\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Dt { #zoned } :DateTime\n  }\n}"),
+            Map.entry("schema_dt_audited.stvn_d", "{\n  :meta {\n    #name \"schema_dt_audited\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Dt { #audited } :DateTime\n  }\n}"),
 
             // Sized Strings
-            Map.entry("schema_str_bounded.stvn_inclf", "{\n  :defs {\n    :Str { #minSize 1 #maxSize 20 } :String\n  }\n}"),
-            Map.entry("schema_str_bare.stvn_inclf", "{\n  :defs {\n    :Str :String\n  }\n}")
+            Map.entry("schema_str_bounded.stvn_d", "{\n  :meta {\n    #name \"schema_str_bounded\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Str { #minSize 1 #maxSize 20 } :String\n  }\n}"),
+            Map.entry("schema_str_bare.stvn_d", "{\n  :meta {\n    #name \"schema_str_bare\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Str :String\n  }\n}")
         );
 
         Map<String, String> publishedHashes = new HashMap<>();
@@ -216,19 +216,24 @@ public class StvnCasBijectivityRegressionTest {
             assertEquals(200, getResponse.statusCode(), "Failed to retrieve CAS hash for " + name);
             assertEquals(source.trim(), getResponse.body().trim(), "Retrieved content must match original source for " + name);
 
-            // Invariant 3: Physical CAS file exists in 2/62 layout
-            Path shardedFile = tempCasRoot.resolve(casHash.substring(0, 2)).resolve(casHash.substring(2) + ".stvn_cas");
-            assertTrue(Files.exists(shardedFile), "Physical CAS envelope must exist at 2/62 path for " + name);
+            // Invariant 3: Physical CAS file exists in 2/64 layout (<hash[0..2]>/<full_hash_64>.cas.stvn)
+            Path shardedFile = tempCasRoot.resolve(casHash.substring(0, 2)).resolve(casHash + ".cas.stvn");
+            assertTrue(Files.exists(shardedFile), "Physical CAS envelope must exist at 2/64 path for " + name);
         }
     }
 
     @Test
     @DisplayName("BIJECT-02: Pre-write conflict rejection and strict physical CAS disk invariance")
     void testPreWriteConflictRejectionAndDiskInvariance() throws Exception {
-        String canonicalName = "CanonicalOrder.stvn_inclf";
-        String aliasName = "AliasOrder.stvn_inclf";
+        String canonicalName = "CanonicalOrder.stvn_d";
+        String aliasName = "CanonicalOrder.orders.stvn_d";
         String sharedSource = """
             {
+              :meta {
+                #name "CanonicalOrder"
+                #domain "orders"
+                #kind #DEFS
+              }
               :defs {
                 :package :com/example/orders {
                   :OrderId { #size 64 } :Int
@@ -251,7 +256,7 @@ public class StvnCasBijectivityRegressionTest {
         // Count physical CAS files on disk
         long baselineCount;
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            baselineCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            baselineCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
         }
         assertEquals(1L, baselineCount, "Exactly 1 CAS file must exist after initial publication");
 
@@ -270,13 +275,18 @@ public class StvnCasBijectivityRegressionTest {
         // Invariant: Physical CAS storage must remain completely invariant (zero writes)
         long afterAliasCount;
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            afterAliasCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            afterAliasCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
         }
         assertEquals(baselineCount, afterAliasCount, "Alias conflict must NEVER persist a duplicate or orphaned CAS envelope");
 
         // 3. Attempt Mutation publication (different content under existing nominal schema name)
         String mutatedSource = """
             {
+              :meta {
+                #name "CanonicalOrder"
+                #domain "orders"
+                #kind #DEFS
+              }
               :defs {
                 :package :com/example/orders {
                   :OrderId { #size 32 } :Int
@@ -300,7 +310,7 @@ public class StvnCasBijectivityRegressionTest {
         // Invariant: Physical CAS storage must still remain completely invariant
         long afterMutationCount;
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            afterMutationCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            afterMutationCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
         }
         assertEquals(baselineCount, afterMutationCount, "Mutation conflict must NEVER write to physical CAS storage");
     }
@@ -308,9 +318,14 @@ public class StvnCasBijectivityRegressionTest {
     @Test
     @DisplayName("BIJECT-03: Strategy 0x7 (0x87) binary wire content negotiation and binary blob passthrough")
     void testStrategy0x7BinaryContentNegotiationAndPassthrough() throws Exception {
-        String schemaName = "DeviceTelemetry.stvn_inclf";
+        String schemaName = "DeviceTelemetry.stvn_d";
         String schemaSource = """
             {
+              :meta {
+                #name "DeviceTelemetry"
+                #domain "iot"
+                #kind #DEFS
+              }
               :defs {
                 :package :com/example/iot {
                   :DeviceId { #unsigned #size 32 } :Int
@@ -358,8 +373,8 @@ public class StvnCasBijectivityRegressionTest {
         // Verify Strategy 0x7 Control Byte (0x87: Bit 7 set = CRC-32C trailer, identityCode = 7)
         assertEquals((byte) 0x87, wireBytes[4], "Control byte must be 0x87 (Strategy 0x7 ExplicitSha256 with CRC-32C trailer)");
 
-        // Verify embedded 32-byte SHA-256 CAS address
-        byte[] embeddedHash = Arrays.copyOfRange(wireBytes, 5, 37);
+        // Verify embedded 32-byte SHA-256 CAS address (offset 6 after Byte 5 MetaControlByte)
+        byte[] embeddedHash = Arrays.copyOfRange(wireBytes, 6, 38);
         assertArrayEquals(expectedHashBytes, embeddedHash, "Embedded 32-byte hash must match schema CAS address");
 
         // 3. Verify decoding via StvnBinaryDecoder.openStrict
@@ -376,7 +391,7 @@ public class StvnCasBijectivityRegressionTest {
         byte[] distinctHashBytes = new byte[32];
         Arrays.fill(distinctHashBytes, (byte) 0xAA);
         byte[] artifactBytes = wireBytes.clone();
-        System.arraycopy(distinctHashBytes, 0, artifactBytes, 5, 32);
+        System.arraycopy(distinctHashBytes, 0, artifactBytes, 6, 32);
 
         // Recalculate CRC-32C trailer for artifactBytes
         CRC32C crc = new CRC32C();
@@ -387,7 +402,7 @@ public class StvnCasBijectivityRegressionTest {
         artifactBytes[artifactBytes.length - 2] = (byte) ((crcVal >>> 16) & 0xFF);
         artifactBytes[artifactBytes.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
 
-        String artifactName = "telemetry_artifact.stvn_inclf";
+        String artifactName = "telemetry_artifact.stvn_bd";
         HttpRequest uploadReq = HttpRequest.newBuilder()
             .uri(URI.create("http://localhost:" + port + "/api/v1/artifacts/binary/" + artifactName))
             .POST(HttpRequest.BodyPublishers.ofByteArray(artifactBytes))
@@ -397,30 +412,37 @@ public class StvnCasBijectivityRegressionTest {
         assertEquals(422, uploadRes.statusCode(), "Strategy 0x7 binary upload must be rejected with HTTP 422: " + uploadRes.body());
         assertTrue(uploadRes.body().contains("ERR_UNSUPPORTED_STRATEGY"));
 
-        // 5. Verify uploading identical Strategy 0x8 schema returns HTTP 200 IdempotentCollision with matching CAS hash
-        byte[] schemaBytes = schemaSource.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buf = ByteBuffer.allocate(256 + schemaBytes.length).order(ByteOrder.LITTLE_ENDIAN);
-        buf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
-        buf.putInt(schemaBytes.length - 1);
-        buf.put(schemaBytes);
-        buf.put((byte) 0x00); // 1-byte offset flag
-        int payloadStart = buf.position();
-        int arenaOffset = payloadStart + 3;
-        buf.put((byte) arenaOffset); // defsOffset > 0
-        buf.put((byte) 0);           // typeOffset == 0
-        buf.put((byte) 0);           // bodyOffset == 0
-        buf.put((byte) 0x42);        // dummy defs payload byte at arenaOffset
+        // 5. Verify uploading Strategy 0x8 binary schema returns HTTP 201 and re-upload returns HTTP 200 IdempotentCollision
+        String binarySchemaText = """
+            {
+              :meta {
+                #name "BinaryDeviceTelemetry"
+                #domain "iot"
+                #kind #DEFS
+              }
+              :defs {
+                :package :com/example/iot {
+                  :DeviceId { #unsigned #size 32 } :Int
+                  :Reading { #exact } :Float
+                }
+              }
+            }
+            """;
+        byte[] valid0x8Payload = createBinarySchemaPayload("BinaryDeviceTelemetry", "iot", binarySchemaText, true, 0, 0);
 
-        int payloadLen = buf.position();
-        CRC32C crc0x8 = new CRC32C();
-        crc0x8.update(ByteBuffer.wrap(buf.array(), 0, payloadLen));
-        buf.putInt((int) crc0x8.getValue());
+        HttpRequest firstUploadReq = HttpRequest.newBuilder()
+            .uri(URI.create("http://localhost:" + port + "/api/v1/artifacts/binary/BinaryDeviceTelemetry.stvn_bd"))
+            .POST(HttpRequest.BodyPublishers.ofByteArray(valid0x8Payload))
+            .build();
 
-        byte[] valid0x8Payload = new byte[buf.position()];
-        System.arraycopy(buf.array(), 0, valid0x8Payload, 0, valid0x8Payload.length);
+        HttpResponse<String> firstUploadRes = httpClient.send(firstUploadReq, HttpResponse.BodyHandlers.ofString());
+        assertEquals(201, firstUploadRes.statusCode(), "Initial upload must return HTTP 201: " + firstUploadRes.body());
+
+        JsonNode firstJson = objectMapper.readTree(firstUploadRes.body());
+        String binaryCasHash = firstJson.get("casHash").asText();
 
         HttpRequest idempUploadReq = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/artifacts/binary/" + schemaName))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/artifacts/binary/BinaryDeviceTelemetry.stvn_bd"))
             .POST(HttpRequest.BodyPublishers.ofByteArray(valid0x8Payload))
             .build();
 
@@ -428,11 +450,16 @@ public class StvnCasBijectivityRegressionTest {
         assertEquals(200, idempUploadRes.statusCode(), "Idempotent upload must return HTTP 200: " + idempUploadRes.body());
 
         JsonNode idempJson = objectMapper.readTree(idempUploadRes.body());
-        assertEquals(casHash, idempJson.get("casHash").asText(), "Canonical CAS hash of Strategy 0x8 upload must match text upload");
+        assertEquals(binaryCasHash, idempJson.get("casHash").asText(), "Canonical CAS hash of idempotent upload must match");
 
         // 6. Verify distinct Strategy 0x8 binary schema upload returns HTTP 201 and roundtrips
         String distinctSchema = """
             {
+              :meta {
+                #name "SensorTelemetry"
+                #domain "iot"
+                #kind #DEFS
+              }
               :defs {
                 :package :com/example/iot {
                   :SensorId { #unsigned #size 64 } :Int
@@ -440,27 +467,9 @@ public class StvnCasBijectivityRegressionTest {
               }
             }
             """;
-        byte[] distinctBytes = distinctSchema.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer distinctBuf = ByteBuffer.allocate(256 + distinctBytes.length).order(ByteOrder.LITTLE_ENDIAN);
-        distinctBuf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
-        distinctBuf.putInt(distinctBytes.length - 1);
-        distinctBuf.put(distinctBytes);
-        distinctBuf.put((byte) 0x00);
-        int distinctStart = distinctBuf.position();
-        int distinctArena = distinctStart + 3;
-        distinctBuf.put((byte) distinctArena);
-        distinctBuf.put((byte) 0);
-        distinctBuf.put((byte) 0);
-        distinctBuf.put((byte) 0x42);
+        byte[] distinctPayload = createBinarySchemaPayload("SensorTelemetry", "iot", distinctSchema, true, 0, 0);
 
-        CRC32C distinctCrc = new CRC32C();
-        distinctCrc.update(ByteBuffer.wrap(distinctBuf.array(), 0, distinctBuf.position()));
-        distinctBuf.putInt((int) distinctCrc.getValue());
-
-        byte[] distinctPayload = new byte[distinctBuf.position()];
-        System.arraycopy(distinctBuf.array(), 0, distinctPayload, 0, distinctPayload.length);
-
-        String distinctName = "SensorTelemetry.stvn_inclf";
+        String distinctName = "SensorTelemetry.stvn_bd";
         HttpRequest uploadDistinctReq = HttpRequest.newBuilder()
             .uri(URI.create("http://localhost:" + port + "/api/v1/artifacts/binary/" + distinctName))
             .POST(HttpRequest.BodyPublishers.ofByteArray(distinctPayload))
@@ -490,6 +499,11 @@ public class StvnCasBijectivityRegressionTest {
     void testDiamondIncludeModularSchemaFlatteningAndRegistration() throws Exception {
         String dSource = """
             {
+              :meta {
+                #name "D"
+                #domain "diamond"
+                #kind #DEFS_INCLUDE
+              }
               :defs {
                 :package :org/stvnadore/diamond/core {
                   :EntityId { #size 64 } :Int
@@ -501,8 +515,13 @@ public class StvnCasBijectivityRegressionTest {
 
         String bSource = """
             {
+              :meta {
+                #name "B"
+                #domain "diamond"
+                #kind #DEFS_INCLUDE
+              }
               :defs {
-                :include [ "D.stvn_incl" ]
+                :include [ "D.stvn_di" ]
                 :package :org/stvnadore/diamond/left {
                   :LeftPayload :Tuple( :org/stvnadore/diamond/core/EntityId :String )
                 }
@@ -512,8 +531,13 @@ public class StvnCasBijectivityRegressionTest {
 
         String cSource = """
             {
+              :meta {
+                #name "C"
+                #domain "diamond"
+                #kind #DEFS_INCLUDE
+              }
               :defs {
-                :include [ "D.stvn_incl" ]
+                :include [ "D.stvn_di" ]
                 :package :org/stvnadore/diamond/right {
                   :RightPayload :Tuple( :org/stvnadore/diamond/core/EntityId :Boolean )
                 }
@@ -523,8 +547,13 @@ public class StvnCasBijectivityRegressionTest {
 
         String aSource = """
             {
+              :meta {
+                #name "DiamondAggregate"
+                #domain "diamond"
+                #kind #DEFS
+              }
               :defs {
-                :include [ "B.stvn_incl" "C.stvn_incl" ]
+                :include [ "B.stvn_di" "C.stvn_di" ]
                 :package :org/stvnadore/diamond/root {
                   :DiamondAggregate :Tuple( :org/stvnadore/diamond/left/LeftPayload :org/stvnadore/diamond/right/RightPayload :org/stvnadore/diamond/core/CreationEpoch )
                 }
@@ -533,14 +562,14 @@ public class StvnCasBijectivityRegressionTest {
             """;
 
         Map<String, String> workspace = Map.of(
-            "D.stvn_incl", dSource,
-            "B.stvn_incl", bSource,
-            "C.stvn_incl", cSource,
-            "A.stvn", aSource
+            "D.stvn_di", dSource,
+            "B.stvn_di", bSource,
+            "C.stvn_di", cSource,
+            "A.stvn_di", aSource
         );
 
         // 1. Flatten diamond dependency graph
-        String flattened = StvnSchemaFlattener.flatten(workspace, "A.stvn");
+        String flattened = StvnSchemaFlattener.flatten(workspace, "A.stvn_di");
         assertNotNull(flattened);
         assertTrue(flattened.contains(":org/stvnadore/diamond/core/EntityId"));
         assertTrue(flattened.contains(":org/stvnadore/diamond/core/CreationEpoch"));
@@ -549,7 +578,7 @@ public class StvnCasBijectivityRegressionTest {
         assertTrue(flattened.contains(":org/stvnadore/diamond/root/DiamondAggregate"));
 
         // 2. Publish flattened modular schema to repository
-        String publishedName = "DiamondAggregate.stvn_inclf";
+        String publishedName = "DiamondAggregate.stvn_d";
         HttpRequest request = HttpRequest.newBuilder()
             .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + publishedName))
             .header("Content-Type", "application/stvn")
@@ -600,6 +629,11 @@ public class StvnCasBijectivityRegressionTest {
     void testMultiTenantNamespaceIsolation() throws Exception {
         String tenantASource = """
             {
+              :meta {
+                #name "tenant_alpha"
+                #domain "alpha"
+                #kind #DEFS
+              }
               :defs {
                 :package :tenant/alpha {
                   :Token :Int
@@ -610,6 +644,11 @@ public class StvnCasBijectivityRegressionTest {
 
         String tenantBSource = """
             {
+              :meta {
+                #name "tenant_beta"
+                #domain "beta"
+                #kind #DEFS
+              }
               :defs {
                 :package :tenant/beta {
                   :Token :Int
@@ -621,25 +660,25 @@ public class StvnCasBijectivityRegressionTest {
         // Publish Tenant Alpha
         HttpResponse<String> resA = httpClient.send(
             HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/tenant_alpha.stvn_inclf"))
+                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/tenant_alpha.stvn_d"))
                 .header("Content-Type", "application/stvn")
                 .POST(HttpRequest.BodyPublishers.ofString(tenantASource))
                 .build(),
             HttpResponse.BodyHandlers.ofString()
         );
-        assertEquals(201, resA.statusCode());
+        assertEquals(201, resA.statusCode(), "Tenant alpha publish failed: " + resA.body());
         String hashA = objectMapper.readTree(resA.body()).get("casHash").asText();
 
         // Publish Tenant Beta
         HttpResponse<String> resB = httpClient.send(
             HttpRequest.newBuilder()
-                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/tenant_beta.stvn_inclf"))
+                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/tenant_beta.stvn_d"))
                 .header("Content-Type", "application/stvn")
                 .POST(HttpRequest.BodyPublishers.ofString(tenantBSource))
                 .build(),
             HttpResponse.BodyHandlers.ofString()
         );
-        assertEquals(201, resB.statusCode());
+        assertEquals(201, resB.statusCode(), "Tenant beta publish failed: " + resB.body());
         String hashB = objectMapper.readTree(resB.body()).get("casHash").asText();
 
         assertNotEquals(hashA, hashB, "Distinct tenant namespaces must produce divergent CAS hashes");
@@ -664,5 +703,38 @@ public class StvnCasBijectivityRegressionTest {
         );
         assertEquals(200, getB.statusCode());
         assertTrue(getB.body().contains(":tenant/beta"));
+    }
+
+    private static byte[] createBinarySchemaPayload(String name, String domain, String schemaText, boolean validDefs, int typeOffset, int bodyOffset) {
+        byte[] textBytes = schemaText.getBytes(StandardCharsets.UTF_8);
+        byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
+        byte[] domainBytes = domain.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.allocate(512 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
+        buf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
+        // Byte 5: MetaControlByte (KIND=#DEFS (0x01), HAS_NAME (0x04), HAS_DOMAIN (0x08) -> 0x0D)
+        buf.put((byte) 0x0D);
+        buf.put((byte) nameBytes.length);
+        buf.put(nameBytes);
+        buf.put((byte) domainBytes.length);
+        buf.put(domainBytes);
+        // Strategy 0x8 length prefix and text payload
+        buf.putInt(textBytes.length - 1);
+        buf.put(textBytes);
+        buf.put((byte) 0x00); // 1-byte offset flag
+        int payloadStart = buf.position();
+        int arenaOffset = payloadStart + 3;
+        buf.put((byte) (validDefs ? arenaOffset : 0));
+        buf.put((byte) typeOffset);
+        buf.put((byte) bodyOffset);
+        buf.put((byte) 0x42); // dummy defs payload byte at arenaOffset
+
+        int payloadLen = buf.position();
+        CRC32C crc = new CRC32C();
+        crc.update(ByteBuffer.wrap(buf.array(), 0, payloadLen));
+        buf.putInt((int) crc.getValue());
+
+        byte[] result = new byte[buf.position()];
+        System.arraycopy(buf.array(), 0, result, 0, result.length);
+        return result;
     }
 }

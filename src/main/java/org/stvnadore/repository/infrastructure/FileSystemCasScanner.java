@@ -34,7 +34,7 @@ public class FileSystemCasScanner implements CasDirectoryScannerPort {
             return stream
                 .filter(Files::isRegularFile)
                 .filter(path -> !path.toString().contains(".quarantine"))
-                .filter(path -> path.getFileName().toString().endsWith(".stvn_cas"))
+                .filter(path -> path.getFileName().toString().endsWith(".cas.stvn") || path.getFileName().toString().endsWith(".stvn_cas"))
                 .map(this::extractHashFromPath)
                 .filter(hash -> hash != null && hash.length() == 64)
                 .toList();
@@ -44,11 +44,15 @@ public class FileSystemCasScanner implements CasDirectoryScannerPort {
     }
 
     private String extractHashFromPath(Path path) {
-        Path parent = path.getParent();
-        if (parent == null) return null;
-        String prefix = parent.getFileName().toString();
         String filename = path.getFileName().toString();
-        String suffix = filename.substring(0, filename.length() - ".stvn_cas".length());
-        return prefix + suffix;
+        if (filename.endsWith(".cas.stvn")) {
+            return filename.substring(0, filename.length() - ".cas.stvn".length());
+        }
+        if (filename.endsWith(".stvn_cas")) {
+            Path parent = path.getParent();
+            if (parent == null) return null;
+            return parent.getFileName().toString() + filename.substring(0, filename.length() - ".stvn_cas".length());
+        }
+        return null;
     }
 }

@@ -28,7 +28,7 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
 
     @Override
     public void save(SchemaMetadata metadata, String sourceText) throws DuplicateIndexException {
-        String insertCatalogSql = "INSERT INTO version_catalog (schema_name, shape_signature, cas_hash) VALUES (?, ?, ?)";
+        String insertCatalogSql = "INSERT INTO version_catalog (schema_name, domain, shape_signature, cas_hash) VALUES (?, ?, ?, ?)";
         String insertAuditSql = "INSERT INTO schema_source_audit (schema_name, cas_hash, source_text) VALUES (?, ?, ?)";
 
         try (Connection conn = dataSource.getConnection()) {
@@ -36,8 +36,9 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
             try {
                 try (PreparedStatement stmt = conn.prepareStatement(insertCatalogSql)) {
                     stmt.setString(1, metadata.schemaName());
-                    stmt.setString(2, metadata.shapeSignature());
-                    stmt.setString(3, metadata.casHash());
+                    stmt.setString(2, metadata.domain());
+                    stmt.setString(3, metadata.shapeSignature());
+                    stmt.setString(4, metadata.casHash());
                     stmt.executeUpdate();
                 }
 
@@ -77,7 +78,7 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
 
     @Override
     public Optional<SchemaMetadata> findByShape(String schemaName, String shapeSignature) {
-        String sql = "SELECT schema_name, shape_signature, cas_hash FROM version_catalog WHERE schema_name = ? AND shape_signature = ?";
+        String sql = "SELECT schema_name, domain, shape_signature, cas_hash FROM version_catalog WHERE schema_name = ? AND shape_signature = ?";
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, schemaName);
@@ -87,7 +88,8 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
                     return Optional.of(new SchemaMetadata(
                         rs.getString("schema_name"),
                         rs.getString("shape_signature"),
-                        rs.getString("cas_hash")
+                        rs.getString("cas_hash"),
+                        rs.getString("domain")
                     ));
                 }
                 return Optional.empty();
@@ -99,7 +101,7 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
 
     @Override
     public Optional<SchemaMetadata> findBySchemaName(String schemaName) {
-        String sql = "SELECT schema_name, shape_signature, cas_hash FROM version_catalog WHERE schema_name = ?";
+        String sql = "SELECT schema_name, domain, shape_signature, cas_hash FROM version_catalog WHERE schema_name = ?";
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, schemaName);
@@ -108,7 +110,8 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
                     return Optional.of(new SchemaMetadata(
                         rs.getString("schema_name"),
                         rs.getString("shape_signature"),
-                        rs.getString("cas_hash")
+                        rs.getString("cas_hash"),
+                        rs.getString("domain")
                     ));
                 }
                 return Optional.empty();
@@ -120,7 +123,7 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
 
     @Override
     public Optional<SchemaMetadata> findByCasHash(String casHash) {
-        String sql = "SELECT schema_name, shape_signature, cas_hash FROM version_catalog WHERE cas_hash = ?";
+        String sql = "SELECT schema_name, domain, shape_signature, cas_hash FROM version_catalog WHERE cas_hash = ?";
         try (Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, casHash);
@@ -129,7 +132,8 @@ public class JdbcIndexRepository implements IndexRepositoryPort {
                     return Optional.of(new SchemaMetadata(
                         rs.getString("schema_name"),
                         rs.getString("shape_signature"),
-                        rs.getString("cas_hash")
+                        rs.getString("cas_hash"),
+                        rs.getString("domain")
                     ));
                 }
                 return Optional.empty();

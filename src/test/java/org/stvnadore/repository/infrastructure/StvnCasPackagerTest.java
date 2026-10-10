@@ -13,7 +13,7 @@ public class StvnCasPackagerTest {
 
     @Test
     public void testPackageEnvelopeCorrectStructureAndParsing() {
-        String schemaName = "user-profile.stvn_inclf";
+        String schemaName = "user-profile.stvn_d";
         String casHash = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
         String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
 
@@ -21,17 +21,18 @@ public class StvnCasPackagerTest {
         String envelope = StvnCasPackager.packageEnvelope(schemaName, casHash, sourceText);
 
         // Verify it contains the required headers and markers
-        assertTrue(envelope.contains(":defs {"));
+        assertTrue(envelope.contains(":meta{#name \"" + casHash + "\"#domain \"cas\"#kind #BODY}"));
+        assertTrue(envelope.contains(":defs{"));
         assertTrue(envelope.contains(":SchemaName :String"));
-        assertTrue(envelope.contains(":StvnInclf { " + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE + " } " + StvnVocabulary.TYPE_STRING));
-        assertTrue(envelope.contains(":type :Tuple(:SchemaName :StvnInclf)"));
+        assertTrue(envelope.contains(":StvnDef{" + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE_SHORT + "}:String"));
+        assertTrue(envelope.contains(":type :Tuple(:SchemaName :StvnDef)"));
         assertTrue(envelope.contains(":body ("));
-        assertTrue(envelope.contains("\"user-profile.stvn_inclf\""));
+        assertTrue(envelope.contains("\"user-profile.stvn_d\""));
         assertTrue(envelope.contains("\"\"\"[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]"));
         assertTrue(envelope.contains("[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]\"\"\""));
 
         // Compile and parse via the upstream compiler to verify validity
-        Optional<StvnValue> compiledOpt = StvnCompiler.compile(envelope);
+        Optional<StvnValue> compiledOpt = StvnCompiler.compilePayload(envelope);
         assertTrue(compiledOpt.isPresent());
 
         StvnValue value = compiledOpt.get();
@@ -53,7 +54,7 @@ public class StvnCasPackagerTest {
 
     @Test
     public void testUnpackSourceTextSuccess() {
-        String schemaName = "order-events.stvn_inclf";
+        String schemaName = "order-events.stvn_d";
         String casHash = "cafebabedeadbeef0123456789abcdefcafebabedeadbeef0123456789abcdef";
         String sourceText = "{\n  :defs {\n    :OrderId { #unsigned #size 64 } :Int\n  }\n}";
 

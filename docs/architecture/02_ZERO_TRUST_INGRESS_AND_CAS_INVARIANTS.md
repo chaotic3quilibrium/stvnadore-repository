@@ -1,9 +1,10 @@
 # STVN Architectural Specification: Zero-Trust Ingress Verification, Byte 4 Wire Governance, and Enum Subset CAS Invariants
 
 - **Document ID**: STVN-SPEC-REPO-02  
-- **Status**: Canonical Specification  
+- **Status**: Canonical Architecture Specification  
 - **Version**: 2.0.0-SNAPSHOT  
 - **Compliance**: Mandatory for all STVN ecosystem server and repository implementations.  
+- **Governing Standard**: Simplified Technical English (STE-01 through STE-07)
 
 ---
 
@@ -12,19 +13,21 @@
 <!-- TOC -->
 * [STVN Architectural Specification: Zero-Trust Ingress Verification, Byte 4 Wire Governance, and Enum Subset CAS Invariants](#stvn-architectural-specification-zero-trust-ingress-verification-byte-4-wire-governance-and-enum-subset-cas-invariants)
   * [1. Architectural Purpose & Scope](#1-architectural-purpose--scope)
-  * [2. Double-Gate Ingress Boundary for Flat Schemas (.stvn_inclf)](#2-double-gate-ingress-boundary-for-flat-schemas-stvn_inclf)
+  * [2. Double-Gate Ingress Boundary for Hermetic Schemas (.stvn_d, .stvn_bd)](#2-double-gate-ingress-boundary-for-hermetic-schemas-stvn_d-stvn_bd)
     * [2.1 Perimeter Capacity Bound](#21-perimeter-capacity-bound)
-    * [2.2 Gate 1: Filename Hygiene](#22-gate-1-filename-hygiene)
+    * [2.2 Gate 1: Filename Extension Hygiene](#22-gate-1-filename-extension-hygiene)
     * [2.3 Headless Semantic Compilation & Zero-Tab Invariant](#23-headless-semantic-compilation--zero-tab-invariant)
-    * [2.4 Gate 2: AST Structure Invariants](#24-gate-2-ast-structure-invariants)
+    * [2.4 Gate 2: Document Identity & AST Structure Invariants](#24-gate-2-document-identity--ast-structure-invariants)
     * [2.5 Canonical Flattening & Exported Interface Retention](#25-canonical-flattening--exported-interface-retention)
-  * [3. Zero-Trust Ingress Verification & Byte 4 Wire Governance](#3-zero-trust-ingress-verification--byte-4-wire-governance)
+  * [3. Zero-Trust Ingress Verification & Wire Framing Governance](#3-zero-trust-ingress-verification--wire-framing-governance)
     * [3.1 Wire Framing Specification](#31-wire-framing-specification)
     * [3.2 Byte 4 Control Byte Bitfield Layout](#32-byte-4-control-byte-bitfield-layout)
       * [1. Trailer Flag (Bit 7, Mask `0x80`): `HAS_TRAILER_CRC32C`](#1-trailer-flag-bit-7-mask-0x80-has_trailer_crc32c)
       * [2. Wire Strategy (Bits 6..4, Mask `0x70`): `BinaryEncodingStrategy`](#2-wire-strategy-bits-64-mask-0x70-binaryencodingstrategy)
       * [3. Schema Identity Strategy (Bits 3..0, Mask `0x0F`): `SchemaIdentityStrategy`](#3-schema-identity-strategy-bits-30-mask-0x0f-schemaidentitystrategy)
-    * [3.3 Hardware-Accelerated CRC-32C Validation Algorithm](#33-hardware-accelerated-crc-32c-validation-algorithm)
+    * [3.3 Byte 5 MetaControlByte & Header Layout](#33-byte-5-metacontrolbyte--header-layout)
+    * [3.4 Hardware-Accelerated CRC-32C Validation Algorithm](#34-hardware-accelerated-crc-32c-validation-algorithm)
+    * [3.5 RootPointer Table Gating Parity](#35-rootpointer-table-gating-parity)
   * [4. Enum Subset CAS Hashing Invariants & Non-Collision Guarantees](#4-enum-subset-cas-hashing-invariants--non-collision-guarantees)
     * [4.1 Mathematical Model & Non-Collision Property](#41-mathematical-model--non-collision-property)
     * [4.2 Invariants Enforced](#42-invariants-enforced)
@@ -38,59 +41,65 @@
 
 ## 1. Architectural Purpose & Scope
 
-This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `1.3.0`.
+This document specifies the ingress boundary security invariants, wire governance, and Content-Addressable Storage (CAS) non-collision guarantees for `stvnadore-repository` baseline `2.0.0-SNAPSHOT`.
 
 The server enforces four core perimeter invariants:
 1. **Perimeter Payload Capacity Bound:** Enforces strict 16 MiB limits (`DEFAULT_UNBOUNDED_STRING_CAPACITY`) on both text schemas and binary streams before parsing.
-2. **Double-Gate Textual Ingress Boundary:** Enforces filename hygiene (`.stvn_inclf`), semantic compilation with zero raw tabs (`ERR_TAB_CHARACTER_FORBIDDEN`), and AST structural invariants (strictly `:defs`, zero `:include`, zero `:type`, zero `:body`) prior to CAS commitment.
-3. **Zero-Trust Binary Ingress Boundary:** Corrupted frames, tampered checksums, truncated buffers, and unauthorized strategy extensions are intercepted at the network edge and rejected prior to disk persistence.
+2. **Double-Gate Textual Ingress Boundary:** Enforces filename hygiene (`.stvn_d`), rejects modular files (`.stvn_di`), fails closed on legacy extensions, validates Document Identity (`:meta`), requires semantic compilation with zero raw tabs (`ERR_TAB_CHARACTER_FORBIDDEN`), and verifies AST structural invariants (strictly `:defs`, zero `:include`, zero `:type`, zero `:body`) prior to CAS commitment.
+3. **Zero-Trust Binary Ingress Boundary:** Corrupted frames, tampered checksums, truncated buffers, and unauthorized strategy extensions are intercepted at the network edge and rejected prior to disk persistence. Ingress requires Ephemeral Strategy `0x8` (`SelfDescribingSchema`) with valid Byte 5 `MetaControlByte`.
 4. **Enum Subset Cryptographic Isolation:** Nominal enum subsets (`#filterIncl`, `#filterExcl`) derive distinct SHA-256 CAS addresses from canonical flattened shape signatures, preventing storage overwrites and catalog collisions.
 
 ---
 
-## 2. Double-Gate Ingress Boundary for Flat Schemas (.stvn_inclf)
+## 2. Double-Gate Ingress Boundary for Hermetic Schemas (.stvn_d, .stvn_bd)
 
 ### 2.1 Perimeter Capacity Bound
 Every inbound schema payload (text or binary) must not exceed the centralized capacity bound:
 * The engine asserts payload size $\le$ `StvnStringCapacityUtils.DEFAULT_UNBOUNDED_STRING_CAPACITY` (16 MiB = 16,777,216 bytes).
 * Overflows reject immediately with HTTP 422 (`ERR_CAPACITY_OVERFLOW`).
 
-### 2.2 Gate 1: Filename Hygiene
-Every text schema submitted to `/api/v1/schemas/{name}` must carry the `.stvn_inclf` extension:
-* The engine asserts `schemaName.endsWith(".stvn_inclf")`.
-* Filenames violating this rule reject immediately with HTTP 422 (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+### 2.2 Gate 1: Filename Extension Hygiene
+Every schema submitted to `/api/v1/schemas/{name}` must carry an authorized hermetic schema extension:
+* Text schemas must carry the `.stvn_d` extension.
+* Binary schemas must carry the `.stvn_bd` extension.
+* Submissions carrying modular schema extension `.stvn_di` fail closed immediately with HTTP 422 (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
+* Submissions carrying excised legacy extensions (`.stvn_incl`, `.stvn_inclf`, `.stvn_cas`, `.stvn_bin`, `.stvn_ir`) fail closed with HTTP 422 (`ERR_LEGACY_FILE_EXTENSION_PURGED`).
+* All other extensions fail closed with HTTP 422 (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
 
 ### 2.3 Headless Semantic Compilation & Zero-Tab Invariant
 The engine compiles incoming source text before executing manual AST structure checks:
-* The engine calls `StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT)`.
+* The engine calls `StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT)` and `compilePayload`.
 * Raw horizontal tab characters (`\t`, `U+0009`) fail compilation and produce diagnostic code `ERR_TAB_CHARACTER_FORBIDDEN`.
 * This ordering prevents AST recovery from masking tab and syntax diagnostics.
 
-### 2.4 Gate 2: AST Structure Invariants
-Flat schema leaf modules stored in CAS must maintain strict structural cleanliness:
-1. The root document context must contain strictly a `:defs` section.
-2. Top-level `:type` sections are prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
-3. Top-level `:body` sections are prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
-4. Embedded `:include` directives are strictly prohibited in flat schemas (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
+### 2.4 Gate 2: Document Identity & AST Structure Invariants
+Hermetic schema leaf modules stored in CAS must maintain strict structural cleanliness and Document Identity:
+1. Every schema must declare a mandatory `:meta` block. Missing `:meta` blocks fail closed with `ERR_SCHEMA_IDENTITY_MISMATCH`.
+2. `#name` and `#domain` must be non-empty POSIX strings matching regex `^[a-zA-Z0-9_-]{1,64}$`. Wildcard identities (`*`) fail closed.
+3. `#kind` must be `#DEFS`.
+4. Declared `#name` must strictly match stem slot 0 of the filename. Mismatches fail closed with `ERR_SCHEMA_IDENTITY_MISMATCH`.
+5. If stem slot 1 exists (`<name>.<domain>.stvn_d`), declared `#domain` must strictly match stem slot 1. Mismatches fail closed with `ERR_SCHEMA_IDENTITY_MISMATCH`.
+6. The root document context must contain strictly a `:defs` section. Top-level `:type` and `:body` sections are strictly prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+7. Embedded `:include` directives are strictly prohibited in hermetic schemas (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
 
 ### 2.5 Canonical Flattening & Exported Interface Retention
-* **Canonical Flattening:** `StvnSchemaFlattener.flatten(Map.of(schemaName, sourceText), schemaName)` unpacks `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), applies unary `#strip`, and canonicalizes definitions.
-* **Exported Interface Retention:** Flat include schemas (`.stvn_inclf`) lack a root `:type` seed; therefore, `StvnCanonicalDefinitionsResolver` retains all exported interface definitions without dead-code elimination.
+* **Canonical Flattening:** `StvnSchemaFlattener.flatten(Map.of(schemaName, sourceText), schemaName)` unpacks `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), applies unary `#strip`, incorporates the collapsed `:meta` block, and canonicalizes definitions.
+* **Exported Interface Retention:** Hermetic definition schemas (`.stvn_d`) lack a root `:type` seed; therefore, `StvnCanonicalDefinitionsResolver` retains all exported interface definitions without dead-code elimination.
 * **Deterministic CAS Addressing:** The 64-character CAS hash is computed by applying SHA-256 to the UTF-8 bytes of the flattened shape signature:
   $$\text{CAS Hash} = \text{SHA-256}(\text{shapeSignature.getBytes(StandardCharsets.UTF\_8)})$$
 
 ---
 
-## 3. Zero-Trust Ingress Verification & Byte 4 Wire Governance
+## 3. Zero-Trust Ingress Verification & Wire Framing Governance
 
 ### 3.1 Wire Framing Specification
-Every incoming `.stvn_bin` binary frame follows a strict binary layout:
+Every incoming binary frame follows a strict binary layout:
 
 ```
-+-------------------+---------------+-----------------------+---------------+--------------------+--------------------+
-| Bytes 0-3 (4B)    | Byte 4 (1B)   | Bytes 5..N (0..Var B) | Byte N+1 (1B) | Bytes N+2.. (1..8B)| Trailing (0 or 4B) |
-| "STVN" Magic      | Control Byte  | Schema Identity Data  | Flags (Offset)| Root Node Pointer  | [CRC-32C Trailer]  |
-+-------------------+---------------+-----------------------+---------------+--------------------+--------------------+
++-------------------+---------------+--------------------+-----------------------+---------------+--------------------+--------------------+
+| Bytes 0-3 (4B)    | Byte 4 (1B)   | Byte 5 (1B)        | Bytes 6..N (0..Var B) | Byte N+1 (1B) | Bytes N+2.. (1..8B)| Trailing (0 or 4B) |
+| "STVN" Magic      | Control Byte  | MetaControlByte    | Schema Identity Data  | Flags (Offset)| Root Node Pointer  | [CRC-32C Trailer]  |
++-------------------+---------------+--------------------+-----------------------+---------------+--------------------+--------------------+
 ```
 
 ### 3.2 Byte 4 Control Byte Bitfield Layout
@@ -115,10 +124,15 @@ Bit 7           Bit 6   Bit 5   Bit 4   Bit 3   Bit 2   Bit 1   Bit 0
 * Code `0x7`: Reserved sentinel for multi-byte header extension. Encountering `0x7` raises `UnsupportedEncodingStrategyException`.
 
 #### 3. Schema Identity Strategy (Bits 3..0, Mask `0x0F`): `SchemaIdentityStrategy`
-* Code `0x8`: `SelfDescribingSchema` (Ephemeral Strategy). Mandatory for all binary schema ingress.
+* Code `0x8`: `SelfDescribingSchema` (Ephemeral Strategy). Mandatory for all binary schema ingress (`.stvn_bd`).
 * Codes `0x0` through `0x7`, `0x9` through `0xF`: Non-ephemeral strategies. Strictly prohibited for schema ingress; rejected fail-closed with `ERR_UNSUPPORTED_STRATEGY` (HTTP 422).
 
-### 3.3 Hardware-Accelerated CRC-32C Validation & Strategy 0x8 Perimeter Gate
+### 3.3 Byte 5 MetaControlByte & Header Layout
+* Byte 5 is the authoritative `MetaControlByte` governing metadata flags and document identity in binary frames.
+* When transcoding or parsing Binary Encoding Strategy `0x7` (`ExplicitSha256`), the 32-byte cryptographic SHA-256 schema hash begins at byte offset 6 (immediately following Byte 5 `MetaControlByte`).
+* Overwriting or offsetting at byte 5 corrupts `MetaControlByte` and triggers a zero-trust `StvnCorruptedBitPatternException`.
+
+### 3.4 Hardware-Accelerated CRC-32C Validation Algorithm
 The server executes the integrity verification algorithm within `SchemaPublishHandler`:
 
 ```java
@@ -158,34 +172,31 @@ if (identityStrategyCode != 0x08) {
 }
 ```
 
-### 3.4 RootPointer Table Gating Parity (Gate 2 AST Equivalency)
-Within `SimpleSchemaRepositoryEngine.publishBinary`, the engine inspects the root pointer table:
-
-$$\text{RootPointer Table} = [\text{defsOffset}, \ \text{typeOffset}, \ \text{bodyOffset}]$$
-
-1. **`defsOffset > 0`:** Compiled `:defs` definitions dictionary must be present (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
-2. **`typeOffset == 0`:** Top-level `:type` instance declaration is strictly prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
-3. **`bodyOffset == 0`:** Top-level `:body` instance payload is strictly prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
-4. **Inner AST Verification:** The embedded `.stvn_inclf` source string is parsed to assert strictly definitions and zero `:include` directives (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
+### 3.5 RootPointer Table Gating Parity
+Within `SimpleSchemaRepositoryEngine.publishBinary`, the engine inspects the self-describing binary structure:
+1. Compiled `:defs` definitions dictionary must be present (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+2. Top-level `:type` instance declaration is strictly prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+3. Top-level `:body` instance payload is strictly prohibited (`ERR_MALFORMED_SCHEMA_IN_ENVELOPE`).
+4. Inner definitions source is parsed to assert valid `:meta`, strictly definitions, and zero `:include` directives (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
 
 ---
 
 ## 4. Enum Subset CAS Hashing Invariants & Non-Collision Guarantees
 
 ### 4.1 Mathematical Model & Non-Collision Property
-In STVN Specification §8 and v1.2.0, an enum subset derives a constrained variant view from a parent enum definition.
+In STVN Specification §8 and v2.0.0, an enum subset derives a constrained variant view from a parent enum definition.
 
 `StvnSchemaFlattener` flattens definitions into canonical AST shape signatures, and the CAS address is derived via:
 $$\text{CAS Hash} = \text{SHA-256}(\text{shapeSignature.getBytes(StandardCharsets.UTF\_8)})$$
 
-Because the subset nominal name, parent reference, filter mode, and variant list feed into the canonical shape signature:
+Because the subset nominal name, parent reference, filter mode, and variant list feed into the canonical shape signature along with the `:meta` identity block:
 $$\text{CAS}(:\text{Status}) \ne \text{CAS}(:\text{ActiveStatus}) \ne \text{CAS}(:\text{NonDeleted})$$
 
 ### 4.2 Invariants Enforced
 1. **Root-Subset Isolation:** A root enum and any derived subset produce divergent CAS addresses.
 2. **Sibling Isolation:** Sibling subsets with different variant selections produce divergent CAS addresses.
 3. **Transitive Lineage Isolation:** In transitive chains (`:ExecutionStatus` $\to$ `:WorkableStatus` $\to$ `:ActiveStatus` $\to$ `:TaskStatus`), each tier produces a unique canonical shape and distinct CAS address.
-4. **Storage Invariant:** Distinct addresses map to distinct files under the `2/62` filesystem CAS layout (`<prefix_2>/<suffix_62>.stvn_cas`), preventing file overwrite.
+4. **Storage Invariant:** Distinct addresses map to distinct files under the `2/64` filesystem CAS layout (`<prefix_2>/<full_hash_64>.cas.stvn`), preventing file overwrite.
 
 ---
 
@@ -196,8 +207,8 @@ $$\text{CAS}(:\text{Status}) \ne \text{CAS}(:\text{ActiveStatus}) \ne \text{CAS}
 | Route Path                            | HTTP Method | Supported Content-Type                               | Pipeline Executed                                              |
 |:--------------------------------------|:-----------:|:-----------------------------------------------------|:---------------------------------------------------------------|
 | `/api/v1/schemas/{name}`              |   `POST`    | `application/stvn`                                   | Double-Gate ingress verification, headless compile & flatten.  |
-| `/api/v1/schemas/{name}`              |   `POST`    | `application/stvn-bin`<br>`application/octet-stream` | Zero-trust binary verification via `StvnBinaryDecoder.open()`. |
-| `/api/v1/artifacts/binary/{name}`     |   `POST`    | Any binary stream                                    | Direct binary verification via `StvnBinaryDecoder.open()`.     |
+| `/api/v1/schemas/{name}`              |   `POST`    | `application/stvn-bin`<br>`application/octet-stream` | Zero-trust binary verification via `openSelfDescribingBinary`.  |
+| `/api/v1/artifacts/binary/{name}`     |   `POST`    | Any binary stream                                    | Direct binary verification via `openSelfDescribingBinary`.      |
 | `/api/v1/schemas/{name}/shapes/{sig}` |    `GET`    | N/A                                                  | Queries catalog metadata by nominal name and shape signature.  |
 | `/api/v1/schemas/cas/{hash}`          |    `GET`    | N/A                                                  | Returns raw unpacked schema text by 64-character CAS hash.     |
 
@@ -211,9 +222,9 @@ The server maps boundary and compilation events to HTTP status codes:
 |:------------|:-----------------------|:---------------------------------------------------------------------------------------------------------------|:-----------------------------------------------------------------------------------------|:----------------------------------------------------------------------------------------|
 | `400`       | Bad Request            | Binary body is empty (`0 bytes`), magic bytes invalid, or CAS hash length `!= 64`.                             | `IllegalArgumentException`                                                               | `{"error": "Bad Request", "message": "<reason>"}`                                       |
 | `404`       | Not Found              | Schema shape signature or CAS file hash does not exist.                                                        | Query miss                                                                               | Empty body                                                                              |
-| `409`       | Conflict               | Schema name exists with a different cryptographic hash. Mutations are prohibited.                              | `PublishResult.SchemaConflict`                                                           | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`               |
+| `409`       | Conflict               | Schema name exists with a different hash, or hash exists under different name (Nominal Bijectivity violation).| `PublishResult.SchemaConflict`                                                           | `{"error": "Conflict", "message": "Schema name '...' already exists..."}`               |
 | `415`       | Unsupported Media Type | Request `Content-Type` is null or not supported.                                                               | Media type guard                                                                         | `{"error": "Unsupported Media Type", "message": "..."}`                                 |
-| `422`       | Unprocessable Entity   | Payload > 16 MiB (`ERR_CAPACITY_OVERFLOW`), Gate 1/2 violation, compiler error (or raw tabs), CRC-32C mismatch, buffer < 9 bytes, or strategy sentinel `0x7`. | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
+| `422`       | Unprocessable Entity   | Payload > 16 MiB (`ERR_CAPACITY_OVERFLOW`), Gate 1/2 violation, compiler error (or raw tabs), CRC-32C mismatch, buffer < 9 bytes, non-0x8 strategy, or invalid `MetaControlByte`. | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
 | `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                      | `PublishResult.IdempotentCollision`                                                      | `SchemaMetadata` JSON object                                                            |
 | `201`       | Created                | New schema verified, persisted to CAS, and cataloged.                                                          | `PublishResult.Success`                                                                  | `SchemaMetadata` JSON object                                                            |
 | `202`       | Accepted               | CAS write succeeded; catalog indexing deferred to background sweeper.                                          | `PublishResult.IndexingDeferred`                                                         | `SchemaMetadata` JSON object                                                            |
@@ -223,8 +234,8 @@ The server maps boundary and compilation events to HTTP status codes:
 ## 7. Concurrency & Background Sweeper Invariants
 
 1. **Virtual Thread Execution:** Every HTTP request executes on an unpinned Java 21 Virtual Thread. Calculations for `CRC32C` and `MessageDigest` allocate state on the stack, preventing thread pinning.
-2. **Zero-Trust Disk Isolation:** A payload that exceeds 16 MiB (`ERR_CAPACITY_OVERFLOW`), fails CRC-32C validation, carries strategy `0x7`, or violates Gate 1 or Gate 2 never touches the filesystem. The handler rejects the request before invoking `FileSystemCasStorage`.
-3. **Relational Sweeper Quarantine:** If a physical file in the CAS directory suffers bit corruption, invalid filenames, illegal includes, or forbidden raw tabs, the `RelationalProjectionSweeper` atomically relocates it to:
-   `data/cas/.quarantine/<filename>.<timestamp>.<REASON>.quarantine`
-   The sweeper executes `StvnCompiler.compileToResult(STRICT)` before inspecting AST structure. This guarantees that raw horizontal tabs and upstream compilation failures quarantine under `INVALID_INNER_AST`, while illegal includes quarantine under `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA`.
+2. **Zero-Trust Disk Isolation:** A payload that exceeds 16 MiB (`ERR_CAPACITY_OVERFLOW`), fails CRC-32C validation, carries non-0x8 strategy, or violates Gate 1 or Gate 2 never touches the filesystem. The handler rejects the request before invoking `FileSystemCasStorage`.
+3. **Relational Sweeper Quarantine:** If a physical file in the CAS directory suffers bit corruption, invalid filenames, illegal includes, missing `:meta`, or forbidden raw tabs, the `RelationalProjectionSweeper` atomically relocates it to:
+   `cas_storage/.quarantine/<filename>.<timestamp>.<REASON>.quarantine`
+   The sweeper executes `StvnCompiler.compileToResult(STRICT)` and `compilePayload` before inspecting AST structure. This guarantees that raw horizontal tabs and upstream compilation failures quarantine under `INVALID_INNER_AST`, missing `:meta` or invalid structure quarantine under `MALFORMED_INNER_STRUCTURE`, and illegal includes quarantine under `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA`.
    Supported reasons include: `EMPTY_PAYLOAD`, `CORRUPT_ENVELOPE`, `INVALID_FILENAME_EXTENSION`, `MALFORMED_INNER_STRUCTURE`, `ILLEGAL_INCLUDES_IN_FLAT_SCHEMA`, `INVALID_INNER_AST`, `FLATTENING_ERROR`, and `HASH_MISMATCH`.

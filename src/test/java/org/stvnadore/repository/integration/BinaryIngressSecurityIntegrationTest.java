@@ -117,7 +117,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-01: Tampered binary payload with CRC-32C trailer rejected with HTTP 422 and zero disk persistence")
     void testTamperedPayloadRejectedWithoutPersistence() throws Exception {
-        Path tamperedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_payload_tampered.stvn_bin");
+        Path tamperedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_payload_tampered.stvn_b");
         byte[] payload = Files.readAllBytes(tamperedFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -134,7 +134,7 @@ public class BinaryIngressSecurityIntegrationTest {
 
         // Verify Zero-Trust Invariant: Nothing committed to physical CAS storage
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertEquals(0, casFileCount, "Tampered payload must NEVER be persisted to CAS storage");
         }
     }
@@ -142,7 +142,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-02: Truncated binary payload below 9 bytes rejected with HTTP 422")
     void testTruncatedPayloadRejected() throws Exception {
-        Path truncatedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_truncated.stvn_bin");
+        Path truncatedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_truncated.stvn_b");
         byte[] payload = Files.readAllBytes(truncatedFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -158,7 +158,7 @@ public class BinaryIngressSecurityIntegrationTest {
             "Response body must report buffer size violation: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertEquals(0, casFileCount, "Truncated payload must NEVER be persisted to CAS storage");
         }
     }
@@ -166,7 +166,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-03: Strategy Sentinel 0x7 rejected fail-fast with HTTP 422")
     void testSentinelStrategy0x7Rejected() throws Exception {
-        Path sentinelFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_strategy_sentinel_0x7.stvn_bin");
+        Path sentinelFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_strategy_sentinel_0x7.stvn_b");
         byte[] payload = Files.readAllBytes(sentinelFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -182,7 +182,7 @@ public class BinaryIngressSecurityIntegrationTest {
             "Response body must report strategy 0x7 rejection: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertEquals(0, casFileCount, "Sentinel payload must NEVER be persisted to CAS storage");
         }
     }
@@ -190,7 +190,7 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-04: Dedicated artifact binary upload router rejects tampered CRC-32C payloads")
     void testDedicatedArtifactRouterRejectsTamperedPayload() throws Exception {
-        Path tamperedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_payload_tampered.stvn_bin");
+        Path tamperedFixture = Paths.get("target/test-classes/fixtures/syntax/invalid/scalars/binary_crc32c_payload_tampered.stvn_b");
         byte[] payload = Files.readAllBytes(tamperedFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
@@ -207,11 +207,11 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-05: Non-ephemeral Strategy 0x0 payload rejected fail-closed with HTTP 422")
     void testStrategy0x0RejectedWithHttp422() throws Exception {
-        Path defaultStrategyFixture = Paths.get("target/test-classes/fixtures/syntax/valid/scalars/crc32c_trailer_valid.stvn_bin");
+        Path defaultStrategyFixture = Paths.get("target/test-classes/fixtures/syntax/valid/scalars/crc32c_trailer_valid.stvn_b");
         byte[] payload = Files.readAllBytes(defaultStrategyFixture);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/default_strat.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/default_strat.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
             .build();
@@ -223,7 +223,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertTrue(response.body().contains("Ephemeral Strategy (0x8)"), "Must require Ephemeral Strategy: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertEquals(0, casFileCount, "Strategy 0x0 payload must NEVER be persisted to CAS storage");
         }
     }
@@ -247,7 +247,7 @@ public class BinaryIngressSecurityIntegrationTest {
         payload[payload.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0x7.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0x7.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
             .build();
@@ -258,7 +258,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertTrue(response.body().contains("ERR_UNSUPPORTED_STRATEGY"));
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertEquals(0, casFileCount, "Strategy 0x7 payload must NEVER be persisted to CAS storage");
         }
     }
@@ -281,7 +281,7 @@ public class BinaryIngressSecurityIntegrationTest {
         payload[payload.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0x1.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0x1.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
             .build();
@@ -310,7 +310,7 @@ public class BinaryIngressSecurityIntegrationTest {
         payload[payload.length - 1] = (byte) ((crcVal >>> 24) & 0xFF);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0xF.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/strat_0xF.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(payload))
             .build();
@@ -324,11 +324,11 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-09: Valid Ephemeral Strategy 0x8 binary schema accepted and committed with HTTP 201")
     void testValidEphemeralStrategy0x8Accepted() throws Exception {
-        String schemaText = "{\n  :defs {\n    :UserRecord {\n      #maxSize 100\n    } :String\n  }\n}";
-        byte[] binaryPayload = createBinarySchemaPayload(schemaText, true, 0, 0);
+        String schemaText = "{\n  :meta {\n    #name \"valid_user\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord {\n      #maxSize 100\n    } :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload("valid_user", "test", schemaText, true, 0, 0);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/valid_user.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/valid_user.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
             .build();
@@ -337,7 +337,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertEquals(201, response.statusCode(), "Valid binary payload must return HTTP 201: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertTrue(casFileCount > 0, "Valid payload must be persisted to CAS storage");
         }
     }
@@ -345,11 +345,11 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-10A: Gate 2 RootPointer table non-zero typeOffset rejected with HTTP 422")
     void testGate2NonZeroTypeOffsetRejected() throws Exception {
-        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
-        byte[] binaryPayload = createBinarySchemaPayload(schemaText, true, 1, 0);
+        String schemaText = "{\n  :meta {\n    #name \"type_nonzero\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload("type_nonzero", "test", schemaText, true, 1, 0);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/type_nonzero.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/type_nonzero.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
             .build();
@@ -361,7 +361,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertTrue(response.body().contains("Top-level :type and :body sections are prohibited"), "Must prohibit :type section: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertEquals(0, casFileCount, "Invalid Gate 2 payload must NEVER be persisted to CAS storage");
         }
     }
@@ -369,11 +369,11 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-10B: Gate 2 RootPointer table non-zero bodyOffset rejected with HTTP 422")
     void testGate2NonZeroBodyOffsetRejected() throws Exception {
-        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
-        byte[] binaryPayload = createBinarySchemaPayload(schemaText, true, 0, 1);
+        String schemaText = "{\n  :meta {\n    #name \"body_nonzero\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload("body_nonzero", "test", schemaText, true, 0, 1);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/body_nonzero.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/body_nonzero.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
             .build();
@@ -385,7 +385,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertTrue(response.body().contains("Top-level :type and :body sections are prohibited"), "Must prohibit :body section: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertEquals(0, casFileCount, "Invalid Gate 2 payload must NEVER be persisted to CAS storage");
         }
     }
@@ -393,11 +393,11 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-10C: Gate 2 RootPointer table zero defsOffset rejected fail-closed")
     void testGate2ZeroDefsOffsetRejected() throws Exception {
-        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
-        byte[] binaryPayload = createBinarySchemaPayload(schemaText, false, 0, 0);
+        String schemaText = "{\n  :meta {\n    #name \"defs_zero\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload("defs_zero", "test", schemaText, false, 0, 0);
 
         HttpRequest request = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/defs_zero.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/defs_zero.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
             .build();
@@ -407,7 +407,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertEquals(422, response.statusCode());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
             assertEquals(0, casFileCount, "Zero defs payload must NEVER be persisted to CAS storage");
         }
     }
@@ -415,11 +415,11 @@ public class BinaryIngressSecurityIntegrationTest {
     @Test
     @DisplayName("SEC-11: Content negotiation returns transcoded UTF-8 text for application/stvn")
     void testContentNegotiationStoredBinaryToText() throws Exception {
-        String schemaText = "{\n  :defs {\n    :AccountOwner :String\n  }\n}";
-        byte[] binaryPayload = createBinarySchemaPayload(schemaText, true, 0, 0);
+        String schemaText = "{\n  :meta {\n    #name \"account_owner\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :AccountOwner :String\n  }\n}";
+        byte[] binaryPayload = createBinarySchemaPayload("account_owner", "test", schemaText, true, 0, 0);
 
         HttpRequest uploadReq = HttpRequest.newBuilder()
-            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/account_owner.stvn_inclf"))
+            .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/account_owner.stvn_bd"))
             .header("Content-Type", "application/stvn-bin")
             .POST(HttpRequest.BodyPublishers.ofByteArray(binaryPayload))
             .build();
@@ -455,10 +455,19 @@ public class BinaryIngressSecurityIntegrationTest {
         assertArrayEquals(binaryPayload, binRes.body());
     }
 
-    private static byte[] createBinarySchemaPayload(String schemaText, boolean validDefs, int typeOffset, int bodyOffset) {
+    private static byte[] createBinarySchemaPayload(String name, String domain, String schemaText, boolean validDefs, int typeOffset, int bodyOffset) {
         byte[] textBytes = schemaText.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buf = ByteBuffer.allocate(256 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
+        byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
+        byte[] domainBytes = domain.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.allocate(512 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
         buf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
+        // Byte 5: MetaControlByte (KIND=#DEFS (0x01), HAS_NAME (0x04), HAS_DOMAIN (0x08) -> 0x0D)
+        buf.put((byte) 0x0D);
+        buf.put((byte) nameBytes.length);
+        buf.put(nameBytes);
+        buf.put((byte) domainBytes.length);
+        buf.put(domainBytes);
+        // Strategy 0x8 length prefix and text payload
         buf.putInt(textBytes.length - 1);
         buf.put(textBytes);
         buf.put((byte) 0x00); // 1-byte offset flag

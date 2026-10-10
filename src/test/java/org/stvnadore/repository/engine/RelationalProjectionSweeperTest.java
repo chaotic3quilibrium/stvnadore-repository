@@ -55,8 +55,20 @@ public class RelationalProjectionSweeperTest {
 
     @Test
     public void testSweeperSuccessfullyReconcilesMissing() throws DuplicateIndexException, NoSuchAlgorithmException {
-        String schemaName = "user-profile.stvn_inclf";
-        String innerSourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n    :UserName { #minSize 1 } :String\n  }\n}";
+        String schemaName = "user_profile.stvn_d";
+        String innerSourceText = """
+            {
+              :meta {
+                #name "user_profile"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :UserId { #unsigned #size 64 } :Int
+                :UserName { #minSize 1 } :String
+              }
+            }
+            """;
 
         // Compute actual canonical AST hash
         String shapeSig = StvnSchemaFlattener.flatten(Map.of(schemaName, innerSourceText), schemaName);
@@ -75,16 +87,28 @@ public class RelationalProjectionSweeperTest {
             argThat(metadata ->
                 metadata.schemaName().equals(schemaName) &&
                 metadata.casHash().equals(matchingHash) &&
+                metadata.domain().equals("test") &&
                 metadata.shapeSignature().contains(":defs")
             ),
-            eq(innerSourceText)
+            eq(innerSourceText.trim())
         );
     }
 
     @Test
     public void testSweeperQuarantinesHashMismatch() throws IOException {
-        String schemaName = "tampered-schema.stvn_inclf";
-        String innerSourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        String schemaName = "tampered_schema.stvn_d";
+        String innerSourceText = """
+            {
+              :meta {
+                #name "tampered_schema"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :UserId { #unsigned #size 64 } :Int
+              }
+            }
+            """;
         String fakeHash = "1111111111111111111111111111111111111111111111111111111111111111";
 
         String envelope = StvnCasPackager.packageEnvelope(schemaName, fakeHash, innerSourceText);
@@ -132,12 +156,29 @@ public class RelationalProjectionSweeperTest {
     }
 
     @Test
-    public void testSweeperQuarantinesNonStvnInclfFilename() throws IOException {
-        String schemaName = "legacy_schema.stvn";
-        String innerSourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+    public void testSweeperQuarantinesNonStvnDFilename() throws IOException {
+        String schemaName = "legacy_schema.stvn_inclf";
+        String innerSourceText = """
+            {
+              :meta {
+                #name "legacy_schema"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :UserId { #unsigned #size 64 } :Int
+              }
+            }
+            """;
         String fakeHash = "3333333333333333333333333333333333333333333333333333333333333333";
 
-        String envelope = StvnCasPackager.packageEnvelope(schemaName, fakeHash, innerSourceText);
+        String tag = "SHA256-" + fakeHash;
+        String envelope = "{:meta{#name \"" + fakeHash + "\"#domain \"cas\"#kind #BODY}" +
+               ":defs{:SchemaName :String :StvnDef{#preserveIndent #T}:String}" +
+               ":type :Tuple(:SchemaName :StvnDef)" +
+               ":body (\"" + schemaName + "\" \"\"\"[" + tag + "]\n" +
+               innerSourceText + "\n" +
+               "[" + tag + "]\"\"\")}";
         casStorage.write(fakeHash, envelope.getBytes(StandardCharsets.UTF_8));
 
         when(scanner.listAllCasHashes()).thenReturn(List.of(fakeHash));
@@ -158,8 +199,20 @@ public class RelationalProjectionSweeperTest {
 
     @Test
     public void testSweeperQuarantinesIllegalIncludes() throws IOException {
-        String schemaName = "illegal_include.stvn_inclf";
-        String innerSourceText = "{\n  :defs {\n    :include [ \"other.stvn_inclf\" ]\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        String schemaName = "illegal_include.stvn_d";
+        String innerSourceText = """
+            {
+              :meta {
+                #name "illegal_include"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :include [ "other.stvn_di" ]
+                :UserId { #unsigned #size 64 } :Int
+              }
+            }
+            """;
         String fakeHash = "4444444444444444444444444444444444444444444444444444444444444444";
 
         String envelope = StvnCasPackager.packageEnvelope(schemaName, fakeHash, innerSourceText);
@@ -183,8 +236,21 @@ public class RelationalProjectionSweeperTest {
 
     @Test
     public void testSweeperQuarantinesMalformedInnerStructure() throws IOException {
-        String schemaName = "body_structure.stvn_inclf";
-        String innerSourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n  :type :UserId\n  :body 100\n}";
+        String schemaName = "body_structure.stvn_d";
+        String innerSourceText = """
+            {
+              :meta {
+                #name "body_structure"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :UserId { #unsigned #size 64 } :Int
+              }
+              :type :UserId
+              :body 100
+            }
+            """;
         String fakeHash = "5555555555555555555555555555555555555555555555555555555555555555";
 
         String envelope = StvnCasPackager.packageEnvelope(schemaName, fakeHash, innerSourceText);
@@ -208,8 +274,8 @@ public class RelationalProjectionSweeperTest {
 
     @Test
     public void testSweeperQuarantinesEnvelopeWithTabAsInvalidInnerAst() throws IOException {
-        String schemaName = "tabbed-schema.stvn_inclf";
-        String innerSourceText = "{\n\t:defs {\n\t\t:UserId { #unsigned #size 64 } :Int\n\t}\n}";
+        String schemaName = "tabbed_schema.stvn_d";
+        String innerSourceText = "{\n  :meta {\n    #name \"tabbed_schema\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n\t:defs {\n\t\t:UserId { #unsigned #size 64 } :Int\n\t}\n}";
         String fakeHash = "9999999999999999999999999999999999999999999999999999999999999999";
 
         String envelope = StvnCasPackager.packageEnvelope(schemaName, fakeHash, innerSourceText);
@@ -230,9 +296,14 @@ public class RelationalProjectionSweeperTest {
 
     @Test
     public void testSweeperReconcilesTemporalPrimitivesWithoutQuarantine() throws DuplicateIndexException, NoSuchAlgorithmException {
-        String schemaName = "temporal-reconciliation.stvn_inclf";
+        String schemaName = "temporal_reconciliation.stvn_d";
         String innerSourceText = """
             {
+              :meta {
+                #name "temporal_reconciliation"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Timestamp { #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch
                 :EventTime { #offset #minIncl "2026-01-01T00:00:00Z" #maxExcl "2027-01-01T00:00:00Z" } :DateTime
@@ -256,8 +327,9 @@ public class RelationalProjectionSweeperTest {
             argThat(metadata ->
                 metadata.schemaName().equals(schemaName) &&
                 metadata.casHash().equals(matchingHash) &&
-                metadata.shapeSignature().contains("{ #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch") &&
-                metadata.shapeSignature().contains("{ #offset #minIncl \"2026-01-01T00:00:00Z\" #maxExcl \"2027-01-01T00:00:00Z\" } :DateTime")
+                metadata.domain().equals("test") &&
+                metadata.shapeSignature().contains("{#ms #minIncl 1000 #maxExcl 2000}:TimeEpoch") &&
+                metadata.shapeSignature().contains("{#offset #minIncl \"2026-01-01T00:00:00Z\" #maxExcl \"2027-01-01T00:00:00Z\"}:DateTime")
             ),
             eq(innerSourceText.trim())
         );

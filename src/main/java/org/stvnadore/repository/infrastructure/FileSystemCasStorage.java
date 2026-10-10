@@ -48,6 +48,11 @@ public class FileSystemCasStorage implements CasStoragePort {
         Path targetFile = getPathForHash(casHash);
         try {
             if (!Files.exists(targetFile)) {
+                // Dual-read fallback for legacy 2/62 layout during in-flight migration
+                Path legacyFile = root.resolve(casHash.substring(0, 2)).resolve(casHash.substring(2) + ".stvn_cas");
+                if (Files.exists(legacyFile)) {
+                    return Files.readAllBytes(legacyFile);
+                }
                 return null;
             }
             return Files.readAllBytes(targetFile);
@@ -57,14 +62,13 @@ public class FileSystemCasStorage implements CasStoragePort {
     }
 
     /**
-     * Computes the 2/62 sharded file path for a 64-character CAS hash.
+     * Computes the normalized sharded file path for a 64-character CAS hash.
      *
      * @param casHash 64-character lowercase hexadecimal hash
-     * @return resolved path on disk
+     * @return resolved path on disk: {@code <root>/<prefix_2>/<full_hash_64>.cas.stvn}
      */
     public Path getPathForHash(String casHash) {
         String prefix = casHash.substring(0, 2);
-        String suffix = casHash.substring(2);
-        return root.resolve(prefix).resolve(suffix + ".stvn_cas");
+        return root.resolve(prefix).resolve(casHash + ".cas.stvn");
     }
 }

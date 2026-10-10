@@ -16,6 +16,7 @@ import org.stvnadore.repository.domain.PublishRequest;
 import org.stvnadore.repository.domain.PublishResult;
 import org.stvnadore.repository.domain.SchemaMetadata;
 import org.stvnadore.repository.domain.SchemaRepositoryEngine;
+import org.stvnadore.repository.SimpleSchemaRepositoryEngine;
 import org.stvnadore.repository.infrastructure.StvnCasPackager;
 import org.stvnadore.repository.ports.CasStoragePort;
 
@@ -179,19 +180,7 @@ public class SchemaPublishHandler implements Handler {
                 return;
             }
 
-            ByteBuffer bb = ByteBuffer.wrap(binaryBytes).order(ByteOrder.LITTLE_ENDIAN);
-            if (binaryBytes.length < 9) {
-                throw new MalformedPayloadException("Malformed Strategy 0x8 payload: truncated length prefix");
-            }
-            long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
-            if (textLenLong > StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY || 9 + textLenLong > binaryBytes.length - (hasTrailer ? 4 : 0)) {
-                throw new MalformedPayloadException("Malformed Strategy 0x8 payload: invalid inlined schema length " + textLenLong);
-            }
-            int textLen = (int) textLenLong;
-            String inlinedText = new String(binaryBytes, 9, textLen, StandardCharsets.UTF_8);
-
-            ByteBuffer buffer = ByteBuffer.wrap(binaryBytes);
-            var root = StvnBinaryDecoder.openStrict(buffer, new SchemaIdentityStrategy.SelfDescribingSchema(inlinedText));
+            var root = SimpleSchemaRepositoryEngine.openSelfDescribingBinary(ByteBuffer.wrap(binaryBytes));
 
             PublishRequest request = new PublishRequest(schemaName, binaryBytes);
             PublishResult result = engine.publishBinary(request, root);
@@ -317,13 +306,12 @@ public class SchemaPublishHandler implements Handler {
             }
             // Transcode stored Strategy 0x8 binary schema to UTF-8 text for application/stvn requests
             try {
-                if (envelopeBytes.length >= 9 && (envelopeBytes[4] & 0x0F) == 0x08) {
-                    ByteBuffer bb = ByteBuffer.wrap(envelopeBytes).order(ByteOrder.LITTLE_ENDIAN);
-                    long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
-                    if (textLenLong <= StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY && 9 + textLenLong <= envelopeBytes.length) {
-                        String inlinedText = new String(envelopeBytes, 9, (int) textLenLong, StandardCharsets.UTF_8);
+                if (envelopeBytes.length >= 6 && (envelopeBytes[4] & 0x0F) == 0x08) {
+                    var root = SimpleSchemaRepositoryEngine.openSelfDescribingBinary(ByteBuffer.wrap(envelopeBytes));
+                    if (root.context().identityStrategy().isPresent() &&
+                        root.context().identityStrategy().get() instanceof SchemaIdentityStrategy.SelfDescribingSchema self) {
                         ctx.contentType(MEDIA_TYPE_STVN);
-                        ctx.result(inlinedText);
+                        ctx.result(self.stvnInclfContent());
                         return;
                     }
                 }
@@ -343,13 +331,13 @@ public class SchemaPublishHandler implements Handler {
             try {
                 byte[] hashBytes = HexFormat.of().parseHex(casHash);
                 // Attempt to compile sourceText first, or fallback to envelopeText AST
-                Optional<StvnValue> astOpt = StvnCompiler.compile(responsePayload);
+                Optional<StvnValue> astOpt = StvnCompiler.compilePayload(responsePayload);
                 if (astOpt.isEmpty()) {
-                    astOpt = StvnCompiler.compile(envelopeText);
+                    astOpt = StvnCompiler.compilePayload(envelopeText);
                 }
                 if (astOpt.isEmpty()) {
-                    String fallbackEnvelope = StvnCasPackager.packageEnvelope("schema.stvn_inclf", casHash, responsePayload);
-                    astOpt = StvnCompiler.compile(fallbackEnvelope);
+                    String fallbackEnvelope = StvnCasPackager.packageEnvelope("schema.stvn_d", casHash, responsePayload);
+                    astOpt = StvnCompiler.compilePayload(fallbackEnvelope);
                 }
                 if (astOpt.isPresent()) {
                     StvnValue rootVal = astOpt.get();
@@ -364,8 +352,8 @@ public class SchemaPublishHandler implements Handler {
                     byte[] binaryResponse = new byte[encoded.remaining()];
                     encoded.get(binaryResponse);
 
-                    // Overwrite embedded 32-byte header hash with authoritative CAS address
-                    System.arraycopy(hashBytes, 0, binaryResponse, 5, 32);
+                    // Overwrite embedded 32-byte header hash with authoritative CAS address (offset 6 after MetaControlByte)
+                    System.arraycopy(hashBytes, 0, binaryResponse, 6, 32);
 
                     // Recalculate CRC-32C trailer over payload (excluding last 4 trailer bytes)
                     CRC32C crc = new CRC32C();

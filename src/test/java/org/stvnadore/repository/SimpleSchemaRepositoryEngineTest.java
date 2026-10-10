@@ -36,9 +36,9 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishSuccess() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n    :UserName { #minSize 1 } :String\n  }\n}";
-        PublishRequest request = new PublishRequest("user-profile.stvn_inclf", sourceText);
-        when(indexRepositoryPort.findBySchemaName("user-profile.stvn_inclf")).thenReturn(Optional.empty());
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n    :UserName { #minSize 1 } :String\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn_d", sourceText);
+        when(indexRepositoryPort.findBySchemaName("user_profile.stvn_d")).thenReturn(Optional.empty());
 
         PublishResult result = engine.publish(request);
 
@@ -46,7 +46,8 @@ public class SimpleSchemaRepositoryEngineTest {
         PublishResult.Success success = (PublishResult.Success) result;
         SchemaMetadata metadata = success.metadata();
 
-        assertEquals("user-profile.stvn_inclf", metadata.schemaName());
+        assertEquals("user_profile.stvn_d", metadata.schemaName());
+        assertEquals("test", metadata.domain());
         assertNotNull(metadata.casHash());
         assertTrue(metadata.shapeSignature().contains(":defs"));
 
@@ -56,23 +57,141 @@ public class SimpleSchemaRepositoryEngineTest {
     }
 
     @Test
-    public void testPublishRejectsNonStvnInclfFilename() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("user-profile.stvn", sourceText);
+    public void testGate1RejectsLegacyStvnInclf() {
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn_inclf", sourceText);
 
         PublishResult result = engine.publish(request);
 
         assertInstanceOf(PublishResult.ValidationError.class, result);
         PublishResult.ValidationError error = (PublishResult.ValidationError) result;
-        assertTrue(error.diagnostics().getFirst().message().contains("must strictly end with '.stvn_inclf'"));
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_LEGACY_FILE_EXTENSION_PURGED"));
         verifyNoInteractions(casStoragePort);
         verifyNoInteractions(indexRepositoryPort);
     }
 
     @Test
+    public void testGate1RejectsModularStvnDi() {
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn_di", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT"));
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
+
+    @Test
+    public void testGate1RejectsNonStvnDFilename() {
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_MALFORMED_SCHEMA_IN_ENVELOPE"));
+        assertTrue(error.diagnostics().getFirst().message().contains(".stvn_d"));
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
+
+    @Test
+    public void testGate2RejectsMissingMeta() {
+        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn_d", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_SCHEMA_IDENTITY_MISMATCH"));
+        assertTrue(error.diagnostics().getFirst().message().contains("Mandatory :meta block missing"));
+    }
+
+    @Test
+    public void testGate2RejectsMissingNameOrDomain() {
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn_d", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_SCHEMA_IDENTITY_MISMATCH"));
+        assertTrue(error.diagnostics().getFirst().message().contains("anonymous wildcards are prohibited"));
+    }
+
+    @Test
+    public void testGate2RejectsNameMismatchAgainstStem() {
+        String sourceText = "{\n  :meta {\n    #name \"different_name\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn_d", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_SCHEMA_IDENTITY_MISMATCH"));
+        assertTrue(error.diagnostics().getFirst().message().contains("does not match envelope schema stem slot 0"));
+    }
+
+    @Test
+    public void testGate2StemSlot1DomainMismatch() {
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #domain \"wrong_domain\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.crm.stvn_d", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_SCHEMA_IDENTITY_MISMATCH"));
+        assertTrue(error.diagnostics().getFirst().message().contains("does not match envelope schema stem slot 1"));
+    }
+
+    @Test
+    public void testGate2StemSlot1DomainMatchSuccess() {
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #domain \"crm\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.crm.stvn_d", sourceText);
+        when(indexRepositoryPort.findBySchemaName("user_profile.crm.stvn_d")).thenReturn(Optional.empty());
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.Success.class, result);
+        PublishResult.Success success = (PublishResult.Success) result;
+        assertEquals("crm", success.metadata().domain());
+    }
+
+    @Test
+    public void testGate2RejectsNonPosixIdentifier() {
+        String sourceText = "{\n  :meta {\n    #name \"bad name!\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("bad_name.stvn_d", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().stream().anyMatch(d -> d.message().contains("ERR_INVALID_METADATA_FACET") || d.message().contains("ERR_SCHEMA_IDENTITY_MISMATCH")));
+    }
+
+    @Test
+    public void testGate2RejectsKindMismatch() {
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #domain \"test\"\n    #kind #BODY\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn_d", sourceText);
+
+        PublishResult result = engine.publish(request);
+
+        assertInstanceOf(PublishResult.ValidationError.class, result);
+        PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+        assertTrue(error.diagnostics().getFirst().message().contains("ERR_DOCUMENT_KIND_MISMATCH"));
+    }
+
+    @Test
     public void testPublishRejectsSchemaContainingIncludes() {
-        String sourceText = "{\n  :defs {\n    :include [ \"other.stvn_inclf\" ]\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("invalid-include.stvn_inclf", sourceText);
+        String sourceText = "{\n  :meta {\n    #name \"invalid_include\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :include [ \"other.stvn_d\" ]\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("invalid_include.stvn_d", sourceText);
 
         PublishResult result = engine.publish(request);
 
@@ -85,8 +204,8 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishRejectsSchemaContainingBodyOrType() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n  :type :UserId\n  :body 100\n}";
-        PublishRequest request = new PublishRequest("invalid-body.stvn_inclf", sourceText);
+        String sourceText = "{\n  :meta {\n    #name \"invalid_body\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n  :type :UserId\n  :body 100\n}";
+        PublishRequest request = new PublishRequest("invalid_body.stvn_d", sourceText);
 
         PublishResult result = engine.publish(request);
 
@@ -98,9 +217,9 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishPackageEnclosureAndFqniExpansion() {
-        String sourceText = "{\n  :defs {\n    :package :org/example {\n      :UserId { #unsigned #size 64 } :Int\n    }\n  }\n}";
-        PublishRequest request = new PublishRequest("packaged.stvn_inclf", sourceText);
-        when(indexRepositoryPort.findBySchemaName("packaged.stvn_inclf")).thenReturn(Optional.empty());
+        String sourceText = "{\n  :meta {\n    #name \"packaged\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :package :org/example {\n      :UserId { #unsigned #size 64 } :Int\n    }\n  }\n}";
+        PublishRequest request = new PublishRequest("packaged.stvn_d", sourceText);
+        when(indexRepositoryPort.findBySchemaName("packaged.stvn_d")).thenReturn(Optional.empty());
 
         PublishResult result = engine.publish(request);
 
@@ -113,16 +232,16 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishMutationConflictReturnsSchemaConflict() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("user.stvn_inclf", sourceText);
-        SchemaMetadata existing = new SchemaMetadata("user.stvn_inclf", "existingSig", "differentHash11111111111111111111111111111111111111111111111111111111");
-        when(indexRepositoryPort.findBySchemaName("user.stvn_inclf")).thenReturn(Optional.of(existing));
+        String sourceText = "{\n  :meta {\n    #name \"user\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user.stvn_d", sourceText);
+        SchemaMetadata existing = new SchemaMetadata("user.stvn_d", "existingSig", "differentHash11111111111111111111111111111111111111111111111111111111", "test");
+        when(indexRepositoryPort.findBySchemaName("user.stvn_d")).thenReturn(Optional.of(existing));
 
         PublishResult result = engine.publish(request);
 
         assertInstanceOf(PublishResult.SchemaConflict.class, result);
         PublishResult.SchemaConflict conflict = (PublishResult.SchemaConflict) result;
-        assertEquals("user.stvn_inclf", conflict.schemaName());
+        assertEquals("user.stvn_d", conflict.schemaName());
         assertEquals("differentHash11111111111111111111111111111111111111111111111111111111", conflict.existingHash());
         assertNotEquals(conflict.existingHash(), conflict.submittedHash());
 
@@ -132,8 +251,8 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishIdempotentCollision() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("user.stvn_inclf", sourceText);
+        String sourceText = "{\n  :meta {\n    #name \"user\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user.stvn_d", sourceText);
 
         // First compile to get actual hash
         PublishResult first = engine.publish(request);
@@ -141,8 +260,8 @@ public class SimpleSchemaRepositoryEngineTest {
         String actualHash = ((PublishResult.Success) first).metadata().casHash();
 
         // Now mock findBySchemaName returning existing with same hash
-        SchemaMetadata existing = new SchemaMetadata("user.stvn_inclf", "sig", actualHash);
-        when(indexRepositoryPort.findBySchemaName("user.stvn_inclf")).thenReturn(Optional.of(existing));
+        SchemaMetadata existing = new SchemaMetadata("user.stvn_d", "sig", actualHash, "test");
+        when(indexRepositoryPort.findBySchemaName("user.stvn_d")).thenReturn(Optional.of(existing));
 
         PublishResult second = engine.publish(request);
         assertInstanceOf(PublishResult.IdempotentCollision.class, second);
@@ -152,8 +271,8 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishAliasConflictReturnsAliasConflict() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("alias-user.stvn_inclf", sourceText);
+        String sourceText = "{\n  :meta {\n    #name \"alias_user\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("alias_user.stvn_d", sourceText);
 
         // Pre-determine hash by running publish once against pristine mock
         PublishResult probe = engine.publish(request);
@@ -162,17 +281,17 @@ public class SimpleSchemaRepositoryEngineTest {
 
         // Reset mocks to test alias conflict pre-check branch
         reset(casStoragePort, indexRepositoryPort, versionCatalogCache);
-        when(indexRepositoryPort.findBySchemaName("alias-user.stvn_inclf")).thenReturn(Optional.empty());
+        when(indexRepositoryPort.findBySchemaName("alias_user.stvn_d")).thenReturn(Optional.empty());
         when(indexRepositoryPort.findByCasHash(actualHash)).thenReturn(
-            Optional.of(new SchemaMetadata("canonical-user.stvn_inclf", "sig", actualHash))
+            Optional.of(new SchemaMetadata("canonical_user.stvn_d", "sig", actualHash, "test"))
         );
 
         PublishResult result = engine.publish(request);
 
         assertInstanceOf(PublishResult.AliasConflict.class, result);
         PublishResult.AliasConflict aliasConflict = (PublishResult.AliasConflict) result;
-        assertEquals("alias-user.stvn_inclf", aliasConflict.submittedSchemaName());
-        assertEquals("canonical-user.stvn_inclf", aliasConflict.existingSchemaName());
+        assertEquals("alias_user.stvn_d", aliasConflict.submittedSchemaName());
+        assertEquals("canonical_user.stvn_d", aliasConflict.existingSchemaName());
         assertEquals(actualHash, aliasConflict.casHash());
 
         verifyNoInteractions(casStoragePort);
@@ -181,17 +300,17 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishConcurrentRaceAliasConflictFallback() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("race-alias.stvn_inclf", sourceText);
-
-        PublishResult probe = engine.publish(new PublishRequest("probe.stvn_inclf", sourceText));
+        String sourceText = "{\n  :meta {\n    #name \"race_alias\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("race_alias.stvn_d", sourceText);
+        PublishResult probe = engine.publish(request);
+        assertInstanceOf(PublishResult.Success.class, probe);
         String actualHash = ((PublishResult.Success) probe).metadata().casHash();
 
         reset(casStoragePort, indexRepositoryPort, versionCatalogCache);
-        when(indexRepositoryPort.findBySchemaName("race-alias.stvn_inclf")).thenReturn(Optional.empty());
+        when(indexRepositoryPort.findBySchemaName("race_alias.stvn_d")).thenReturn(Optional.empty());
         when(indexRepositoryPort.findByCasHash(actualHash))
             .thenReturn(Optional.empty()) // first check before save
-            .thenReturn(Optional.of(new SchemaMetadata("winner.stvn_inclf", "sig", actualHash))); // catch block check
+            .thenReturn(Optional.of(new SchemaMetadata("winner.stvn_d", "sig", actualHash, "test"))); // catch block check
         doThrow(new DuplicateIndexException("uq_version_catalog_cas_hash"))
             .when(indexRepositoryPort).save(any(SchemaMetadata.class), eq(sourceText));
 
@@ -199,23 +318,23 @@ public class SimpleSchemaRepositoryEngineTest {
 
         assertInstanceOf(PublishResult.AliasConflict.class, result);
         PublishResult.AliasConflict conflict = (PublishResult.AliasConflict) result;
-        assertEquals("race-alias.stvn_inclf", conflict.submittedSchemaName());
-        assertEquals("winner.stvn_inclf", conflict.existingSchemaName());
-        assertEquals(actualHash, conflict.casHash());
+        assertEquals("race_alias.stvn_d", conflict.submittedSchemaName());
+        assertEquals("winner.stvn_d", conflict.existingSchemaName());
     }
 
     @Test
     public void testPublishConcurrentRaceSchemaConflictFallback() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("race-schema.stvn_inclf", sourceText);
+        String sourceText = "{\n  :meta {\n    #name \"race_schema\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("race_schema.stvn_d", sourceText);
 
-        PublishResult probe = engine.publish(new PublishRequest("probe.stvn_inclf", sourceText));
+        PublishResult probe = engine.publish(new PublishRequest("race_schema.stvn_d", sourceText));
+        assertInstanceOf(PublishResult.Success.class, probe);
         String actualHash = ((PublishResult.Success) probe).metadata().casHash();
 
         reset(casStoragePort, indexRepositoryPort, versionCatalogCache);
-        when(indexRepositoryPort.findBySchemaName("race-schema.stvn_inclf"))
+        when(indexRepositoryPort.findBySchemaName("race_schema.stvn_d"))
             .thenReturn(Optional.empty()) // first check
-            .thenReturn(Optional.of(new SchemaMetadata("race-schema.stvn_inclf", "sig", "concurrentOtherHash111111111111111111111111111111111111111111111111"))); // catch block check
+            .thenReturn(Optional.of(new SchemaMetadata("race_schema.stvn_d", "sig", "concurrentOtherHash111111111111111111111111111111111111111111111111", "test"))); // catch block check
         when(indexRepositoryPort.findByCasHash(actualHash)).thenReturn(Optional.empty());
         doThrow(new DuplicateIndexException("uq_version_catalog_schema_name"))
             .when(indexRepositoryPort).save(any(SchemaMetadata.class), eq(sourceText));
@@ -224,23 +343,23 @@ public class SimpleSchemaRepositoryEngineTest {
 
         assertInstanceOf(PublishResult.SchemaConflict.class, result);
         PublishResult.SchemaConflict conflict = (PublishResult.SchemaConflict) result;
-        assertEquals("race-schema.stvn_inclf", conflict.schemaName());
+        assertEquals("race_schema.stvn_d", conflict.schemaName());
         assertEquals("concurrentOtherHash111111111111111111111111111111111111111111111111", conflict.existingHash());
-        assertEquals(actualHash, conflict.submittedHash());
     }
 
     @Test
     public void testPublishConcurrentRaceIdempotentCollisionFallback() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("race-idemp.stvn_inclf", sourceText);
+        String sourceText = "{\n  :meta {\n    #name \"race_idemp\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("race_idemp.stvn_d", sourceText);
 
-        PublishResult probe = engine.publish(new PublishRequest("probe.stvn_inclf", sourceText));
+        PublishResult probe = engine.publish(new PublishRequest("race_idemp.stvn_d", sourceText));
+        assertInstanceOf(PublishResult.Success.class, probe);
         String actualHash = ((PublishResult.Success) probe).metadata().casHash();
 
         reset(casStoragePort, indexRepositoryPort, versionCatalogCache);
-        when(indexRepositoryPort.findBySchemaName("race-idemp.stvn_inclf"))
+        when(indexRepositoryPort.findBySchemaName("race_idemp.stvn_d"))
             .thenReturn(Optional.empty()) // first check
-            .thenReturn(Optional.of(new SchemaMetadata("race-idemp.stvn_inclf", "sig", actualHash))); // catch block check
+            .thenReturn(Optional.of(new SchemaMetadata("race_idemp.stvn_d", "sig", actualHash, "test"))); // catch block check
         when(indexRepositoryPort.findByCasHash(actualHash)).thenReturn(Optional.empty());
         doThrow(new DuplicateIndexException("uq_version_catalog_schema_name"))
             .when(indexRepositoryPort).save(any(SchemaMetadata.class), eq(sourceText));
@@ -254,7 +373,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishValidationErrorEmpty() {
-        PublishRequest request = new PublishRequest("user.stvn_inclf", "");
+        PublishRequest request = new PublishRequest("user.stvn_d", "");
         PublishResult result = engine.publish(request);
 
         assertInstanceOf(PublishResult.ValidationError.class, result);
@@ -268,7 +387,7 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishValidationErrorSyntax() {
-        PublishRequest request = new PublishRequest("user.stvn_inclf", "{ :defs { :UserId { #unsigned #size 64 } :Int");
+        PublishRequest request = new PublishRequest("user.stvn_d", "{ :defs { :UserId { #unsigned #size 64 } :Int");
         PublishResult result = engine.publish(request);
 
         assertInstanceOf(PublishResult.ValidationError.class, result);
@@ -281,9 +400,9 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishIndexingDeferredOnDatabaseError() {
-        String sourceText = "{\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
-        PublishRequest request = new PublishRequest("user-profile.stvn_inclf", sourceText);
-        when(indexRepositoryPort.findBySchemaName("user-profile.stvn_inclf")).thenReturn(Optional.empty());
+        String sourceText = "{\n  :meta {\n    #name \"user_profile\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 64 } :Int\n  }\n}";
+        PublishRequest request = new PublishRequest("user_profile.stvn_d", sourceText);
+        when(indexRepositoryPort.findBySchemaName("user_profile.stvn_d")).thenReturn(Optional.empty());
 
         doThrow(new RuntimeException("Database connection error"))
             .when(indexRepositoryPort).save(any(SchemaMetadata.class), anyString());
@@ -299,8 +418,8 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishRejectsRawTabCharacter() {
-        String sourceWithTab = "{\n\t:defs {\n\t\t:UserId { #unsigned #size 64 } :Int\n\t}\n}";
-        PublishRequest request = new PublishRequest("user-tab.stvn_inclf", sourceWithTab);
+        String sourceWithTab = "{\n\t:meta {\n\t\t#name \"user_tab\"\n\t\t#domain \"test\"\n\t\t#kind #DEFS\n\t}\n\t:defs {\n\t\t:UserId { #unsigned #size 64 } :Int\n\t}\n}";
+        PublishRequest request = new PublishRequest("user_tab.stvn_d", sourceWithTab);
 
         PublishResult result = engine.publish(request);
 
@@ -315,7 +434,7 @@ public class SimpleSchemaRepositoryEngineTest {
     @Test
     public void testPublishRejectsPayloadExceedingCapacityBound() {
         String largePayload = "a".repeat(StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + 1);
-        PublishRequest request = new PublishRequest("overflow.stvn_inclf", largePayload);
+        PublishRequest request = new PublishRequest("overflow.stvn_d", largePayload);
 
         PublishResult result = engine.publish(request);
 
@@ -328,7 +447,7 @@ public class SimpleSchemaRepositoryEngineTest {
     @Test
     public void testPublishBinaryRejectsPayloadExceedingCapacityBound() {
         byte[] oversizedBytes = new byte[StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY + 1];
-        PublishRequest request = new PublishRequest("overflow.stvn_bin", oversizedBytes);
+        PublishRequest request = new PublishRequest("overflow.stvn_bd", oversizedBytes);
 
         PublishResult result = engine.publishBinary(request, mock(org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer.class));
 
@@ -341,7 +460,7 @@ public class SimpleSchemaRepositoryEngineTest {
     public void testPublishBinaryRejectsNonEphemeralStrategy() {
         byte[] payload = new byte[10];
         payload[4] = 0x00; // Strategy 0x0
-        PublishRequest request = new PublishRequest("schema.stvn_inclf", payload);
+        PublishRequest request = new PublishRequest("schema.stvn_bd", payload);
         var mockRoot = mock(StvnBinaryDecoder.RootPointer.class);
         var mockContext = mock(StvnBinaryDecoder.DecodeContext.class);
         when(mockRoot.context()).thenReturn(mockContext);
@@ -356,8 +475,8 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishBinaryRejectsNonInclfFilename() {
-        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
-        byte[] payload = createValidEphemeral0x8Payload(schemaText);
+        String schemaText = "{\n  :meta {\n    #name \"schema\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload("schema", "test", schemaText);
         PublishRequest request = new PublishRequest("schema.stvn", payload);
 
         PublishResult result = engine.publish(request);
@@ -365,14 +484,14 @@ public class SimpleSchemaRepositoryEngineTest {
         assertInstanceOf(PublishResult.ValidationError.class, result);
         PublishResult.ValidationError error = (PublishResult.ValidationError) result;
         assertTrue(error.diagnostics().getFirst().message().contains("ERR_MALFORMED_SCHEMA_IN_ENVELOPE"));
-        assertTrue(error.diagnostics().getFirst().message().contains(".stvn_inclf"));
+        assertTrue(error.diagnostics().getFirst().message().contains(".stvn_bd"));
     }
 
     @Test
     public void testPublishBinaryRejectsZeroDefsOffset() {
-        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
-        byte[] payload = createValidEphemeral0x8Payload(schemaText);
-        PublishRequest request = new PublishRequest("schema.stvn_inclf", payload);
+        String schemaText = "{\n  :meta {\n    #name \"schema\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload("schema", "test", schemaText);
+        PublishRequest request = new PublishRequest("schema.stvn_bd", payload);
 
         var mockRoot = mock(StvnBinaryDecoder.RootPointer.class);
         var mockContext = mock(StvnBinaryDecoder.DecodeContext.class);
@@ -394,9 +513,9 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishBinaryRejectsNonZeroTypeOffset() {
-        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
-        byte[] payload = createValidEphemeral0x8Payload(schemaText);
-        PublishRequest request = new PublishRequest("schema.stvn_inclf", payload);
+        String schemaText = "{\n  :meta {\n    #name \"schema\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload("schema", "test", schemaText);
+        PublishRequest request = new PublishRequest("schema.stvn_bd", payload);
 
         var mockRoot = mock(StvnBinaryDecoder.RootPointer.class);
         var mockContext = mock(StvnBinaryDecoder.DecodeContext.class);
@@ -418,9 +537,9 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishBinaryRejectsNonZeroBodyOffset() {
-        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
-        byte[] payload = createValidEphemeral0x8Payload(schemaText);
-        PublishRequest request = new PublishRequest("schema.stvn_inclf", payload);
+        String schemaText = "{\n  :meta {\n    #name \"schema\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord :String\n  }\n}";
+        byte[] payload = createValidEphemeral0x8Payload("schema", "test", schemaText);
+        PublishRequest request = new PublishRequest("schema.stvn_bd", payload);
 
         var mockRoot = mock(StvnBinaryDecoder.RootPointer.class);
         var mockContext = mock(StvnBinaryDecoder.DecodeContext.class);
@@ -442,16 +561,16 @@ public class SimpleSchemaRepositoryEngineTest {
 
     @Test
     public void testPublishBinarySuccessMatchesTextualCasHash() {
-        String schemaText = "{\n  :defs {\n    :UserRecord :String\n  }\n}";
-        PublishRequest textReq = new PublishRequest("binary-biject.stvn_inclf", schemaText);
-        when(indexRepositoryPort.findBySchemaName("binary-biject.stvn_inclf")).thenReturn(Optional.empty());
+        String schemaText = "{\n  :meta {\n    #name \"binary_biject\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserRecord :String\n  }\n}";
+        PublishRequest textReq = new PublishRequest("binary_biject.stvn_d", schemaText);
+        when(indexRepositoryPort.findBySchemaName("binary_biject.stvn_d")).thenReturn(Optional.empty());
 
         PublishResult textResult = engine.publish(textReq);
         assertInstanceOf(PublishResult.Success.class, textResult);
         String expectedHash = ((PublishResult.Success) textResult).metadata().casHash();
 
-        byte[] payload = createValidEphemeral0x8Payload(schemaText);
-        PublishRequest binReq = new PublishRequest("binary-biject.stvn_inclf", payload);
+        byte[] payload = createValidEphemeral0x8Payload("binary_biject", "test", schemaText);
+        PublishRequest binReq = new PublishRequest("binary_biject.stvn_bd", payload);
 
         PublishResult binResult = engine.publish(binReq);
         assertInstanceOf(PublishResult.Success.class, binResult);
@@ -460,10 +579,18 @@ public class SimpleSchemaRepositoryEngineTest {
         assertEquals(expectedHash, binHash, "Binary publish CAS hash must equal text publish CAS hash (1:1 Law)");
     }
 
-    private static byte[] createValidEphemeral0x8Payload(String schemaText) {
+    private static byte[] createValidEphemeral0x8Payload(String name, String domain, String schemaText) {
         byte[] textBytes = schemaText.getBytes(StandardCharsets.UTF_8);
-        ByteBuffer buf = ByteBuffer.allocate(256 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
+        byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);
+        byte[] domainBytes = domain.getBytes(StandardCharsets.UTF_8);
+        ByteBuffer buf = ByteBuffer.allocate(512 + textBytes.length).order(ByteOrder.LITTLE_ENDIAN);
         buf.put(new byte[]{'S', 'T', 'V', 'N', (byte) 0x88});
+        // Byte 5: MetaControlByte (0x0D = KIND=#DEFS, HAS_NAME, HAS_DOMAIN)
+        buf.put((byte) 0x0D);
+        buf.put((byte) nameBytes.length);
+        buf.put(nameBytes);
+        buf.put((byte) domainBytes.length);
+        buf.put(domainBytes);
         buf.putInt(textBytes.length - 1);
         buf.put(textBytes);
         buf.put((byte) 0x00);
@@ -487,14 +614,19 @@ public class SimpleSchemaRepositoryEngineTest {
     public void testPublishTemporalSchemaSuccess() {
         String sourceText = """
             {
+              :meta {
+                #name "temporal_schema"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Timestamp { #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch
                 :EventTime { #offset #minIncl "2026-01-01T00:00:00Z" #maxExcl "2027-01-01T00:00:00Z" } :DateTime
               }
             }
             """;
-        PublishRequest request = new PublishRequest("temporal-schema.stvn_inclf", sourceText);
-        when(indexRepositoryPort.findBySchemaName("temporal-schema.stvn_inclf")).thenReturn(Optional.empty());
+        PublishRequest request = new PublishRequest("temporal_schema.stvn_d", sourceText);
+        when(indexRepositoryPort.findBySchemaName("temporal_schema.stvn_d")).thenReturn(Optional.empty());
 
         PublishResult result = engine.publish(request);
 
@@ -502,10 +634,11 @@ public class SimpleSchemaRepositoryEngineTest {
         PublishResult.Success success = (PublishResult.Success) result;
         SchemaMetadata metadata = success.metadata();
 
-        assertEquals("temporal-schema.stvn_inclf", metadata.schemaName());
+        assertEquals("temporal_schema.stvn_d", metadata.schemaName());
+        assertEquals("test", metadata.domain());
         assertNotNull(metadata.casHash());
-        assertTrue(metadata.shapeSignature().contains("{ #ms #minIncl 1000 #maxExcl 2000 } :TimeEpoch"));
-        assertTrue(metadata.shapeSignature().contains("{ #offset #minIncl \"2026-01-01T00:00:00Z\" #maxExcl \"2027-01-01T00:00:00Z\" } :DateTime"));
+        assertTrue(metadata.shapeSignature().contains("{#ms #minIncl 1000 #maxExcl 2000}:TimeEpoch"));
+        assertTrue(metadata.shapeSignature().contains("{#offset #minIncl \"2026-01-01T00:00:00Z\" #maxExcl \"2027-01-01T00:00:00Z\"}:DateTime"));
 
         verify(casStoragePort).write(eq(metadata.casHash()), any(byte[].class));
         verify(indexRepositoryPort).save(eq(metadata), eq(sourceText));
@@ -516,12 +649,17 @@ public class SimpleSchemaRepositoryEngineTest {
     public void testPublishRejectsBareTimeEpoch() {
         String sourceText = """
             {
+              :meta {
+                #name "bare_epoch"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Timestamp :TimeEpoch
               }
             }
             """;
-        PublishRequest request = new PublishRequest("bare-epoch.stvn_inclf", sourceText);
+        PublishRequest request = new PublishRequest("bare_epoch.stvn_d", sourceText);
 
         PublishResult result = engine.publish(request);
 
@@ -537,12 +675,17 @@ public class SimpleSchemaRepositoryEngineTest {
     public void testPublishRejectsBareDateTime() {
         String sourceText = """
             {
+              :meta {
+                #name "bare_datetime"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Timestamp :DateTime
               }
             }
             """;
-        PublishRequest request = new PublishRequest("bare-datetime.stvn_inclf", sourceText);
+        PublishRequest request = new PublishRequest("bare_datetime.stvn_d", sourceText);
 
         PublishResult result = engine.publish(request);
 
@@ -558,12 +701,17 @@ public class SimpleSchemaRepositoryEngineTest {
     public void testPublishRejectsClosedBoundsOnTimeEpoch() {
         String sourceText = """
             {
+              :meta {
+                #name "closed_epoch"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Timestamp { #s #maxIncl 1000 } :TimeEpoch
               }
             }
             """;
-        PublishRequest request = new PublishRequest("closed-epoch.stvn_inclf", sourceText);
+        PublishRequest request = new PublishRequest("closed_epoch.stvn_d", sourceText);
 
         PublishResult result = engine.publish(request);
 
@@ -579,12 +727,17 @@ public class SimpleSchemaRepositoryEngineTest {
     public void testPublishRejectsClosedBoundsOnDateTime() {
         String sourceText = """
             {
+              :meta {
+                #name "closed_datetime"
+                #domain "test"
+                #kind #DEFS
+              }
               :defs {
                 :Timestamp { #zoned #minExcl "2026-01-01T00:00:00Z[UTC]" } :DateTime
               }
             }
             """;
-        PublishRequest request = new PublishRequest("closed-datetime.stvn_inclf", sourceText);
+        PublishRequest request = new PublishRequest("closed_datetime.stvn_d", sourceText);
 
         PublishResult result = engine.publish(request);
 

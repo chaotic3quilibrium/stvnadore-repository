@@ -7,6 +7,9 @@ import org.stvnadore.core.StvnCompiler;
 import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnSchemaFlattener;
 import org.stvnadore.core.StvnVocabulary;
+import org.stvnadore.core.ast.StvnDocument;
+import org.stvnadore.core.ast.StvnDocumentKind;
+import org.stvnadore.core.ast.StvnDocumentMeta;
 import org.stvnadore.core.binary.SchemaIdentityStrategy;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.binary.StvnBinaryDecoder.RootPointer;
@@ -82,18 +85,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
                 ));
             }
             try {
-                ByteBuffer bb = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
-                if (payload.length < 9) {
-                    throw new org.stvnadore.core.validation.MalformedPayloadException(
-                        "Buffer too small for STVN binary with CRC-32C trailer: requires at least 9 bytes, found " + payload.length
-                    );
-                }
-                long textLenLong = Integer.toUnsignedLong(bb.getInt(5)) + 1;
-                if (textLenLong > StvnVocabulary.DEFAULT_UNBOUNDED_STRING_CAPACITY || 9 + textLenLong > payload.length) {
-                    throw new org.stvnadore.core.validation.MalformedPayloadException("Malformed Strategy 0x8 payload: invalid inlined schema length " + textLenLong);
-                }
-                String inlinedText = new String(payload, 9, (int) textLenLong, StandardCharsets.UTF_8);
-                RootPointer root = StvnBinaryDecoder.openStrict(ByteBuffer.wrap(payload), new SchemaIdentityStrategy.SelfDescribingSchema(inlinedText));
+                RootPointer root = openSelfDescribingBinary(ByteBuffer.wrap(payload));
                 return publishBinary(request, root);
             } catch (Exception e) {
                 return new PublishResult.ValidationError(List.of(
@@ -115,15 +107,25 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             ));
         }
 
-        // Gate 1 (Filename Hygiene): Enforce that schema filename strictly ends with .stvn_inclf
-        if (!schemaName.endsWith(".stvn_inclf")) {
+        // Gate 1 (Filename Hygiene): Fail closed on legacy, modular, or payload extensions
+        if (isLegacyExtension(schemaName)) {
             return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema filename must strictly end with '.stvn_inclf': " + schemaName, 1, 1, 0, schemaName.length())
+                new CompileDiagnostic("ERR_LEGACY_FILE_EXTENSION_PURGED: Excised legacy file extension is permanently prohibited: " + schemaName, 1, 1, 0, schemaName.length())
+            ));
+        }
+        if (schemaName.endsWith(".stvn_di")) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Modular schema (.stvn_di) cannot be published directly: " + schemaName, 1, 1, 0, schemaName.length())
+            ));
+        }
+        if (!schemaName.endsWith(".stvn_d")) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema filename must strictly end with '.stvn_d': " + schemaName, 1, 1, 0, schemaName.length())
             ));
         }
 
         // Headless Validation Gate: Compile schema first to catch syntax errors and raw tab characters
-        StvnCompilationResult<StvnValue> compileResult = StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT);
+        StvnCompilationResult<StvnDocument> compileResult = StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT);
         if (compileResult.hasErrors()) {
             List<CompileDiagnostic> compileDiagnostics = compileResult.diagnostics().stream()
                 .map(d -> {
@@ -131,10 +133,55 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
                     if (d.errorCode().isPresent() && !msg.contains(d.errorCode().get())) {
                         msg = d.errorCode().get() + ": " + msg;
                     }
+                    if (msg.contains("Mandatory :meta block")) {
+                        msg = "ERR_SCHEMA_IDENTITY_MISMATCH: " + msg;
+                    }
                     return new CompileDiagnostic(msg, d.line(), d.column(), d.startOffset(), d.endOffset());
                 })
                 .toList();
             return new PublishResult.ValidationError(compileDiagnostics);
+        }
+
+        StvnDocument document = compileResult.document().orElse(null);
+        if (document == null || document.meta().isEmpty()) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_SCHEMA_IDENTITY_MISMATCH: Mandatory :meta block missing from definition schema: " + schemaName, 1, 1)
+            ));
+        }
+
+        // Gate 2 (Identity Completeness & Bijectivity Enforcement)
+        StvnDocumentMeta meta = document.meta().get();
+        if (meta.name().isEmpty() || meta.domain().isEmpty()) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_SCHEMA_IDENTITY_MISMATCH: Schema must explicitly declare both #name and #domain; anonymous wildcards are prohibited", 1, 1)
+            ));
+        }
+
+        String declaredName = meta.name().get();
+        String declaredDomain = meta.domain().get();
+        if (!declaredName.matches("^[a-zA-Z0-9_-]{1,64}$") || !declaredDomain.matches("^[a-zA-Z0-9_-]{1,64}$")) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_INVALID_METADATA_FACET: #name and #domain must match atomic POSIX pattern ^[a-zA-Z0-9_-]{1,64}$", 1, 1)
+            ));
+        }
+
+        String[] slots = extractStemSlots(schemaName);
+        String expectedStemSlot0 = slots[0];
+        if (!declaredName.equals(expectedStemSlot0)) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_SCHEMA_IDENTITY_MISMATCH: Declared schema #name '" + declaredName + "' does not match envelope schema stem slot 0 '" + expectedStemSlot0 + "'", 1, 1)
+            ));
+        }
+        if (slots.length > 1 && !declaredDomain.equals(slots[1])) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_SCHEMA_IDENTITY_MISMATCH: Declared schema #domain '" + declaredDomain + "' does not match envelope schema stem slot 1 '" + slots[1] + "'", 1, 1)
+            ));
+        }
+
+        if (meta.kind().isEmpty() || meta.kind().get() != StvnDocumentKind.DEFS) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_DOCUMENT_KIND_MISMATCH: Schema definition must declare #kind #DEFS", 1, 1)
+            ));
         }
 
         // Gate 2 (AST Structure Invariant): Root context must contain strictly a :defs section
@@ -165,7 +212,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         for (var element : docCtx.documentBody().defsEntry().defsElement()) {
             if (element.includeStmt() != null) {
                 return new PublishResult.ValidationError(List.of(
-                    new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_inclf) cannot contain " + StvnVocabulary.KEYWORD_INCLUDE + " directives", 1, 1)
+                    new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_d) cannot contain " + StvnVocabulary.KEYWORD_INCLUDE + " directives", 1, 1)
                 ));
             }
         }
@@ -190,7 +237,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             throw new RuntimeException("SHA-256 algorithm missing from environment", e);
         }
 
-        SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash);
+        SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash, declaredDomain);
 
         // 4. Check for schema name collision / mutation attempt
         Optional<SchemaMetadata> existingOpt = indexRepositoryPort.findBySchemaName(schemaName);
@@ -275,10 +322,20 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             ));
         }
 
-        // Gate 1 (Filename Hygiene): Enforce that schema filename strictly ends with .stvn_inclf
-        if (!schemaName.endsWith(".stvn_inclf")) {
+        // Gate 1 (Filename Hygiene): Enforce that schema filename strictly ends with .stvn_bd
+        if (isLegacyExtension(schemaName)) {
             return new PublishResult.ValidationError(List.of(
-                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Schema filename must strictly end with '.stvn_inclf': " + schemaName, 1, 1, 0, schemaName.length())
+                new CompileDiagnostic("ERR_LEGACY_FILE_EXTENSION_PURGED: Excised legacy file extension is permanently prohibited: " + schemaName, 1, 1, 0, schemaName.length())
+            ));
+        }
+        if (schemaName.endsWith(".stvn_di")) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Modular schema (.stvn_di) cannot be published directly: " + schemaName, 1, 1, 0, schemaName.length())
+            ));
+        }
+        if (!schemaName.endsWith(".stvn_bd")) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_MALFORMED_SCHEMA_IN_ENVELOPE: Binary schema filename must strictly end with '.stvn_bd': " + schemaName, 1, 1, 0, schemaName.length())
             ));
         }
 
@@ -302,7 +359,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
 
         // Validate inner Ephemeral source text AST structure
         String innerSourceText = self.stvnInclfContent();
-        StvnCompilationResult<StvnValue> compileResult = StvnCompiler.compileToResult(innerSourceText, schemaName, StvnParserConfig.STRICT);
+        StvnCompilationResult<StvnDocument> compileResult = StvnCompiler.compileToResult(innerSourceText, schemaName, StvnParserConfig.STRICT);
         if (compileResult.hasErrors()) {
             return new PublishResult.ValidationError(compileResult.diagnostics().stream()
                 .map(d -> {
@@ -313,6 +370,43 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
                     return new CompileDiagnostic(msg, d.line(), d.column(), d.startOffset(), d.endOffset());
                 })
                 .toList());
+        }
+
+        StvnDocument binaryDoc = compileResult.document().orElse(null);
+        if (binaryDoc == null || binaryDoc.meta().isEmpty()) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_SCHEMA_IDENTITY_MISMATCH: Mandatory :meta block missing from binary definition schema", 1, 1)
+            ));
+        }
+        StvnDocumentMeta binMeta = binaryDoc.meta().get();
+        if (binMeta.name().isEmpty() || binMeta.domain().isEmpty()) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_SCHEMA_IDENTITY_MISMATCH: Binary schema must explicitly declare both #name and #domain; anonymous wildcards are prohibited", 1, 1)
+            ));
+        }
+        String binDeclaredName = binMeta.name().get();
+        String binDeclaredDomain = binMeta.domain().get();
+        if (!binDeclaredName.matches("^[a-zA-Z0-9_-]{1,64}$") || !binDeclaredDomain.matches("^[a-zA-Z0-9_-]{1,64}$")) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_INVALID_METADATA_FACET: #name and #domain must match atomic POSIX pattern ^[a-zA-Z0-9_-]{1,64}$", 1, 1)
+            ));
+        }
+        String[] binSlots = extractStemSlots(schemaName);
+        String binExpectedSlot0 = binSlots[0];
+        if (!binDeclaredName.equals(binExpectedSlot0)) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_SCHEMA_IDENTITY_MISMATCH: Declared schema #name '" + binDeclaredName + "' does not match stem slot 0 '" + binExpectedSlot0 + "'", 1, 1)
+            ));
+        }
+        if (binSlots.length > 1 && !binDeclaredDomain.equals(binSlots[1])) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_SCHEMA_IDENTITY_MISMATCH: Declared schema #domain '" + binDeclaredDomain + "' does not match envelope schema stem slot 1 '" + binSlots[1] + "'", 1, 1)
+            ));
+        }
+        if (binMeta.kind().isEmpty() || binMeta.kind().get() != StvnDocumentKind.DEFS) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_DOCUMENT_KIND_MISMATCH: Binary schema definition must declare #kind #DEFS", 1, 1)
+            ));
         }
 
         // Gate 2 (AST Structure Invariant): Root context must contain strictly a :defs section
@@ -343,7 +437,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         for (var element : docCtx.documentBody().defsEntry().defsElement()) {
             if (element.includeStmt() != null) {
                 return new PublishResult.ValidationError(List.of(
-                    new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_inclf) cannot contain " + StvnVocabulary.KEYWORD_INCLUDE + " directives", 1, 1)
+                    new CompileDiagnostic("ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT: Flat schemas (.stvn_bd) cannot contain " + StvnVocabulary.KEYWORD_INCLUDE + " directives", 1, 1)
                 ));
             }
         }
@@ -362,7 +456,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             ));
         }
 
-        SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash);
+        SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSignature, casHash, binDeclaredDomain);
 
         // Check for schema name collision / mutation attempt
         Optional<SchemaMetadata> existingOpt = indexRepositoryPort.findBySchemaName(schemaName);
@@ -486,5 +580,53 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             case 8 -> (int) buf.getLong(pos);
             default -> 0;
         };
+    }
+
+    private static boolean isLegacyExtension(String path) {
+        return path.endsWith(".stvn_incl") || path.endsWith(".stvn_inclf") ||
+               path.endsWith(".stvn_cas") || path.endsWith(".stvn_bin") ||
+               path.endsWith(".stvn_ir") || path.endsWith(".stvn_f") ||
+               path.endsWith(".stvn_df") || path.endsWith(".stvn_bf") || path.endsWith(".stvn_bdf");
+    }
+
+    private static String[] extractStemSlots(String path) {
+        String filename = path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : path;
+        filename = filename.contains("\\") ? filename.substring(filename.lastIndexOf('\\') + 1) : filename;
+        String stem;
+        if (filename.endsWith(".stvn_bd")) {
+            stem = filename.substring(0, filename.length() - ".stvn_bd".length());
+        } else if (filename.endsWith(".stvn_d")) {
+            stem = filename.substring(0, filename.length() - ".stvn_d".length());
+        } else {
+            int lastDot = filename.lastIndexOf('.');
+            stem = lastDot != -1 ? filename.substring(0, lastDot) : filename;
+        }
+        return stem.split("\\.");
+    }
+    /**
+     * Opens and parses a binary frame with Strategy 0x8 SelfDescribingSchema wire encoding.
+     *
+     * @param buffer the binary buffer positioned at the frame header
+     * @return the resolved {@link RootPointer}
+     */
+    public static RootPointer openSelfDescribingBinary(ByteBuffer buffer) {
+        ByteBuffer bb = buffer.duplicate().order(ByteOrder.LITTLE_ENDIAN);
+        int pos = 5;
+        byte metaControlByte = bb.get(pos++);
+        if ((metaControlByte & 0x04) != 0) { // HAS_NAME
+            int nameLen = Byte.toUnsignedInt(bb.get(pos++));
+            pos += nameLen;
+        }
+        if ((metaControlByte & 0x08) != 0) { // HAS_DOMAIN
+            int domainLen = Byte.toUnsignedInt(bb.get(pos++));
+            pos += domainLen;
+        }
+        long textLenLong = Integer.toUnsignedLong(bb.getInt(pos)) + 1;
+        pos += 4;
+        byte[] textBytes = new byte[(int) textLenLong];
+        bb.position(pos);
+        bb.get(textBytes);
+        String inlinedText = new String(textBytes, StandardCharsets.UTF_8);
+        return StvnBinaryDecoder.openStrict(buffer, new SchemaIdentityStrategy.SelfDescribingSchema(inlinedText));
     }
 }

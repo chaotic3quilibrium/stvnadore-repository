@@ -133,8 +133,26 @@ public class JdbcIndexRepositoryTest {
     }
 
     @Test
-    public void testFindByCasHashNonExistentReturnsEmpty() {
-        Optional<SchemaMetadata> result = repository.findByCasHash("5555555555555555555555555555555555555555555555555555555555555555");
-        assertTrue(result.isEmpty());
+    public void testSaveAndFindWithExplicitDomain() {
+        String schemaName = "order-event";
+        String shapeSig = "{ :defs { :Order :String } }";
+        String casHash = "6666666666666666666666666666666666666666666666666666666666666666";
+        String domain = "ecommerce";
+        SchemaMetadata metadata = new SchemaMetadata(schemaName, shapeSig, casHash, domain);
+
+        repository.save(metadata, "source text");
+
+        Optional<SchemaMetadata> byName = repository.findBySchemaName(schemaName);
+        assertTrue(byName.isPresent());
+        assertEquals(domain, byName.get().domain());
+        assertEquals(metadata, byName.get());
+
+        Optional<SchemaMetadata> byShape = repository.findByShape(schemaName, shapeSig);
+        assertTrue(byShape.isPresent());
+        assertEquals(domain, byShape.get().domain());
+
+        Optional<SchemaMetadata> byHash = repository.findByCasHash(casHash);
+        assertTrue(byHash.isPresent());
+        assertEquals(domain, byHash.get().domain());
     }
 }
