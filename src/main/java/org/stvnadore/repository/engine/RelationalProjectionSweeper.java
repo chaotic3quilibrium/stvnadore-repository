@@ -95,7 +95,7 @@ public class RelationalProjectionSweeper implements Runnable {
 
                 String envelopeText = new String(envelopeBytes, StandardCharsets.UTF_8);
 
-                StvnAnalysisResult<Optional<StvnDocument>, List<StvnDiagnostic>> analysis = StvnCompiler.analyze(envelopeText);
+                StvnAnalysisResult<Optional<StvnDocument>, List<StvnDiagnostic>> analysis = StvnCompiler.analyze(envelopeText, null, StvnParserConfig.SYSTEM_STRICT);
                 if (!analysis.diagnostics().isEmpty() || analysis.value().isEmpty()) {
                     quarantine(casHash, "CORRUPT_ENVELOPE");
                     continue;

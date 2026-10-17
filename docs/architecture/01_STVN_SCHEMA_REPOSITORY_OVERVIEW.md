@@ -147,7 +147,7 @@ Physical CAS envelopes for subsets and parents remain isolated under separate 2/
 Raw schema sources are wrapped in a canonical STVN tuple envelope:
 ```stvn
 {:meta{#name "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"#domain "cas"#kind #BODY}:defs{:SchemaName :String :StvnDef{#preserveIndent #T}:String}:type :Tuple(:SchemaName :StvnDef):body ("UserProfile.stvn_d" """[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]
-{:meta{#name "UserProfile"#domain "user"#kind #DEFS}:defs{:UserId :Uint64 :UserName :StringNonEmpty}}
+{:meta{#name "UserProfile"#domain "user"#kind #DEFS}:defs{:UserId {#unsigned #size 64} :Int :UserName {#minSize 1} :String}}
 [SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]""")}
 ```
 

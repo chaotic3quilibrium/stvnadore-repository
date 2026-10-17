@@ -4,6 +4,7 @@ import io.javalin.Javalin;
 import io.javalin.http.Context;
 import io.javalin.http.Handler;
 import org.stvnadore.core.StvnCompiler;
+import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.binary.SchemaIdentityStrategy;
 import org.stvnadore.core.binary.StvnBinaryDecoder;
 import org.stvnadore.core.binary.StvnBinaryEncoder;
@@ -331,13 +332,13 @@ public class SchemaPublishHandler implements Handler {
             try {
                 byte[] hashBytes = HexFormat.of().parseHex(casHash);
                 // Attempt to compile sourceText first, or fallback to envelopeText AST
-                Optional<StvnValue> astOpt = StvnCompiler.compilePayload(responsePayload);
+                Optional<StvnValue> astOpt = StvnCompiler.compilePayload(responsePayload, null, StvnParserConfig.SYSTEM_STRICT);
                 if (astOpt.isEmpty()) {
-                    astOpt = StvnCompiler.compilePayload(envelopeText);
+                    astOpt = StvnCompiler.compilePayload(envelopeText, null, StvnParserConfig.SYSTEM_STRICT);
                 }
                 if (astOpt.isEmpty()) {
                     String fallbackEnvelope = StvnCasPackager.packageEnvelope("schema.stvn_d", casHash, responsePayload);
-                    astOpt = StvnCompiler.compilePayload(fallbackEnvelope);
+                    astOpt = StvnCompiler.compilePayload(fallbackEnvelope, null, StvnParserConfig.SYSTEM_STRICT);
                 }
                 if (astOpt.isPresent()) {
                     StvnValue rootVal = astOpt.get();

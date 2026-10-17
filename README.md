@@ -120,7 +120,7 @@ The endpoint supports dual-mode content negotiation:
 * **Method**: `POST`
 * **Path**: `/api/v1/schemas/{name}`
 * **Headers**: `Content-Type: application/stvn` OR `Content-Type: application/stvn-bin`
-* **Request Body**: Raw STVN schema source text OR compiled binary stream (`.stvn_bin`).
+* **Request Body**: Raw STVN schema source text OR compiled binary stream (`.stvn_b`).
 
 #### Response Status Codes:
 
@@ -137,7 +137,7 @@ The endpoint supports dual-mode content negotiation:
 ```bash
 curl -X POST http://localhost:8080/api/v1/schemas/UserProfile \
   -H "Content-Type: application/stvn" \
-  --data-binary @user_profile.stvn_inclf
+  --data-binary @user_profile.stvn_d
 ```
 
 #### Example 201 Response Body:
@@ -145,7 +145,7 @@ curl -X POST http://localhost:8080/api/v1/schemas/UserProfile \
 ```json
 {
   "schemaName": "UserProfile",
-  "shapeSignature": ":Tuple( :Int64 :StringNonEmpty :Option( :String ) )",
+  "shapeSignature": ":Tuple( { #size 64 } :Int { #minSize 1 } :String :Option( :String ) )",
   "casHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 }
 ```
@@ -154,7 +154,7 @@ curl -X POST http://localhost:8080/api/v1/schemas/UserProfile \
 
 ### 2. Publish Binary Artifact (Dedicated Route)
 
-Directly ingests and verifies compiled STVN binary payloads (`.stvn_bin`). The route enforces zero-trust ingress stream verification prior to writing any data to CAS storage.
+Directly ingests and verifies compiled STVN binary payloads (`.stvn_b`). The route enforces zero-trust ingress stream verification prior to writing any data to CAS storage.
 
 * **Method**: `POST`
 * **Path**: `/api/v1/artifacts/binary/{name}`
@@ -167,14 +167,14 @@ Directly ingests and verifies compiled STVN binary payloads (`.stvn_bin`). The r
 * `200 OK`: Idempotent publication (exact binary hash already registered).
 * `400 Bad Request`: Binary payload is empty (`0 bytes`) or magic header is corrupt.
 * `409 Conflict`: Schema name exists with a divergent CAS hash.
-* `422 Unprocessable Entity`: CRC-32C trailer verification failed, payload truncated below 9 bytes, or reserved strategy sentinel `0x7` detected.
+* `422 Unprocessable Entity`: CRC-32C trailer verification failed, payload truncated below 9 bytes, or reserved strategy sentinel `0x7` detected. Fenced strings using legacy arrow syntax `"""->[TAG]` are permanently prohibited under Rule STR-04 / `E026`.
 
 #### Example Request:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/artifacts/binary/UserProfileBinary \
   -H "Content-Type: application/stvn-bin" \
-  --data-binary @user_profile.stvn_bin
+  --data-binary @user_profile.stvn_b
 ```
 
 ---
@@ -192,7 +192,7 @@ Queries metadata for a schema matching a specific nominal name and flattened str
 #### Example Request:
 
 ```bash
-curl -X GET "http://localhost:8080/api/v1/schemas/UserProfile/shapes/%3ATuple(%20%3AInt64%20%3AStringNonEmpty%20)"
+curl -X GET "http://localhost:8080/api/v1/schemas/UserProfile/shapes/%3ATuple(%20%7B%20%23size%2064%20%7D%20%3AInt%20%7B%20%23minSize%201%20%7D%20%3AString%20)"
 ```
 
 ---
@@ -283,7 +283,7 @@ data/cas/
 The physical `.stvn_cas` file encloses the canonical schema in a standard AST tuple envelope:
 
 ```stvn
-(:Tuple "UserProfile" "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" "{ :defs { :UserProfile :Tuple( :Int64 :String ) } }")
+(:Tuple "UserProfile" "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" "{ :defs { :UserProfile :Tuple( { #size 64 } :Int :String ) } }")
 ```
 
 ### Enum Subset CAS Hashing Invariants & Non-Collision Guarantees
@@ -432,7 +432,7 @@ Please email: <jim.oflaherty.jr+srrml@gmail.com>, letting us know what license y
 ## v1.1.1
 
 - 2026.09.07
-- Deprecated `"""->[TAG]` in favor of canonical `"""[TAG]` (scheduled for removal in 2.0.0)
+- Prohibited `"""->[TAG]` in favor of canonical `"""[TAG]` (strictly prohibited under Rule STR-04 / `E026` in 2.0.0)
 
 ## v1.1.0
 

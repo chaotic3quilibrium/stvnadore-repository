@@ -146,7 +146,7 @@ public class StvnCasBijectivityRegressionTest {
         Map<String, String> schemas = Map.ofEntries(
             // Sized Integers
             Map.entry("schema_int_16.stvn_d", "{\n  :meta {\n    #name \"schema_int_16\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #size 16 } :Int\n  }\n}"),
-            Map.entry("schema_int_32.stvn_d", "{\n  :meta {\n    #name \"schema_int_32\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #size 32 } :Int\n  }\n}"),
+            Map.entry("schema_int_64.stvn_d", "{\n  :meta {\n    #name \"schema_int_64\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #size 64 } :Int\n  }\n}"),
             Map.entry("schema_int_bare.stvn_d", "{\n  :meta {\n    #name \"schema_int_bare\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val :Int\n  }\n}"),
             Map.entry("schema_int_unsigned_32.stvn_d", "{\n  :meta {\n    #name \"schema_int_unsigned_32\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #unsigned #size 32 } :Int\n  }\n}"),
 
@@ -289,7 +289,7 @@ public class StvnCasBijectivityRegressionTest {
               }
               :defs {
                 :package :com/example/orders {
-                  :OrderId { #size 32 } :Int
+                  :OrderId :Int
                   :OrderNotes { #maxSize 100 } :String
                 }
               }
@@ -505,7 +505,7 @@ public class StvnCasBijectivityRegressionTest {
                 #kind #DEFS_INCLUDE
               }
               :defs {
-                :package :org/stvnadore/diamond/core {
+                :package :com/example/diamond/core {
                   :EntityId { #size 64 } :Int
                   :CreationEpoch { #ms } :TimeEpoch
                 }
@@ -522,8 +522,8 @@ public class StvnCasBijectivityRegressionTest {
               }
               :defs {
                 :include [ "D.stvn_di" ]
-                :package :org/stvnadore/diamond/left {
-                  :LeftPayload :Tuple( :org/stvnadore/diamond/core/EntityId :String )
+                :package :com/example/diamond/left {
+                  :LeftPayload :Tuple( :com/example/diamond/core/EntityId :String )
                 }
               }
             }
@@ -538,8 +538,8 @@ public class StvnCasBijectivityRegressionTest {
               }
               :defs {
                 :include [ "D.stvn_di" ]
-                :package :org/stvnadore/diamond/right {
-                  :RightPayload :Tuple( :org/stvnadore/diamond/core/EntityId :Boolean )
+                :package :com/example/diamond/right {
+                  :RightPayload :Tuple( :com/example/diamond/core/EntityId :Boolean )
                 }
               }
             }
@@ -554,8 +554,8 @@ public class StvnCasBijectivityRegressionTest {
               }
               :defs {
                 :include [ "B.stvn_di" "C.stvn_di" ]
-                :package :org/stvnadore/diamond/root {
-                  :DiamondAggregate :Tuple( :org/stvnadore/diamond/left/LeftPayload :org/stvnadore/diamond/right/RightPayload :org/stvnadore/diamond/core/CreationEpoch )
+                :package :com/example/diamond/root {
+                  :DiamondAggregate :Tuple( :com/example/diamond/left/LeftPayload :com/example/diamond/right/RightPayload :com/example/diamond/core/CreationEpoch )
                 }
               }
             }
@@ -571,11 +571,11 @@ public class StvnCasBijectivityRegressionTest {
         // 1. Flatten diamond dependency graph
         String flattened = StvnSchemaFlattener.flatten(workspace, "A.stvn_di");
         assertNotNull(flattened);
-        assertTrue(flattened.contains(":org/stvnadore/diamond/core/EntityId"));
-        assertTrue(flattened.contains(":org/stvnadore/diamond/core/CreationEpoch"));
-        assertTrue(flattened.contains(":org/stvnadore/diamond/left/LeftPayload"));
-        assertTrue(flattened.contains(":org/stvnadore/diamond/right/RightPayload"));
-        assertTrue(flattened.contains(":org/stvnadore/diamond/root/DiamondAggregate"));
+        assertTrue(flattened.contains(":com/example/diamond/core/EntityId"));
+        assertTrue(flattened.contains(":com/example/diamond/core/CreationEpoch"));
+        assertTrue(flattened.contains(":com/example/diamond/left/LeftPayload"));
+        assertTrue(flattened.contains(":com/example/diamond/right/RightPayload"));
+        assertTrue(flattened.contains(":com/example/diamond/root/DiamondAggregate"));
 
         // 2. Publish flattened modular schema to repository
         String publishedName = "DiamondAggregate.stvn_d";

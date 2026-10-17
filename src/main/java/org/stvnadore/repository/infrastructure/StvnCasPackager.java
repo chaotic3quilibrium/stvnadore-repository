@@ -1,6 +1,7 @@
 package org.stvnadore.repository.infrastructure;
 
 import org.stvnadore.core.StvnCompiler;
+import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.core.ir.StvnValue;
 
@@ -49,7 +50,7 @@ public class StvnCasPackager {
      */
     public static Optional<String> unpackSourceText(String envelopeText) {
         try {
-            Optional<StvnValue> compiled = StvnCompiler.compilePayload(envelopeText);
+            Optional<StvnValue> compiled = StvnCompiler.compilePayload(envelopeText, null, StvnParserConfig.SYSTEM_STRICT);
             if (compiled.isPresent() && compiled.get() instanceof StvnValue.StvnTuple tuple) {
                 if (tuple.elements().size() >= 2 && tuple.elements().get(1) instanceof StvnValue.StvnString sourceVal) {
                     return Optional.of(sourceVal.value().trim());

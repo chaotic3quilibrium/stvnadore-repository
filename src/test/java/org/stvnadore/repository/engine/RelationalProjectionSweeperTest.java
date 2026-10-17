@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.stvnadore.core.StvnSchemaFlattener;
+import org.stvnadore.core.StvnVocabulary;
 import org.stvnadore.repository.domain.DuplicateIndexException;
 import org.stvnadore.repository.domain.SchemaMetadata;
 import org.stvnadore.repository.infrastructure.FileSystemCasStorage;
@@ -337,6 +338,56 @@ public class RelationalProjectionSweeperTest {
         Path quarantineDir = tempCasRoot.resolve(".quarantine");
         assertTrue(!Files.exists(quarantineDir) || isDirEmpty(quarantineDir),
             "Temporal schema must reconcile without false-positive quarantines");
+    }
+
+    @Test
+    public void testSweeperReconcilesEnvelopeWithStvnCasSystemDomain() throws IOException, NoSuchAlgorithmException {
+        String schemaName = "sys_profile.stvn_d";
+        String innerSourceText = """
+            {
+              :meta {
+                #name "sys_profile"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :UserId { #unsigned #size 64 } :Int
+              }
+            }
+            """;
+
+        String shapeSig = StvnSchemaFlattener.flatten(Map.of(schemaName, innerSourceText), schemaName);
+        byte[] hashBytes = MessageDigest.getInstance("SHA-256").digest(shapeSig.getBytes(StandardCharsets.UTF_8));
+        String matchingHash = HexFormat.of().formatHex(hashBytes);
+
+        String tag = "SHA256-" + matchingHash;
+        String systemEnvelope = "{:meta{#name \"" + matchingHash + "\"#domain \"stvn_cas\"#kind #BODY}" +
+            StvnVocabulary.KEYWORD_DEFS + "{:SchemaName " + StvnVocabulary.TYPE_STRING + " " +
+            ":StvnDef{" + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE_SHORT + "}" + StvnVocabulary.TYPE_STRING + "}" +
+            StvnVocabulary.KEYWORD_TYPE + " " + StvnVocabulary.TYPE_TUPLE + "(:SchemaName :StvnDef)" +
+            StvnVocabulary.KEYWORD_BODY + " (\"" + schemaName + "\" \"\"\"[" + tag + "]\n" +
+            innerSourceText + "\n" +
+            "[" + tag + "]\"\"\")}";
+
+        casStorage.write(matchingHash, systemEnvelope.getBytes(StandardCharsets.UTF_8));
+
+        when(scanner.listAllCasHashes()).thenReturn(List.of(matchingHash));
+        when(indexRepository.existsByHash(matchingHash)).thenReturn(false);
+
+        sweeper.run();
+
+        verify(indexRepository).save(
+            argThat(metadata ->
+                metadata.schemaName().equals(schemaName) &&
+                metadata.casHash().equals(matchingHash) &&
+                metadata.domain().equals("test")
+            ),
+            eq(innerSourceText.trim())
+        );
+
+        Path quarantineDir = tempCasRoot.resolve(".quarantine");
+        assertTrue(!Files.exists(quarantineDir) || isDirEmpty(quarantineDir),
+            "System domain envelope must reconcile without quarantine");
     }
 
     private static boolean isDirEmpty(Path path) {
