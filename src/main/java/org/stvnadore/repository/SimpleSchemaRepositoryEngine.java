@@ -33,12 +33,18 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Production implementation of {@link SchemaRepositoryEngine}.
  * Coordinates CAS storage, relational indexing, and version catalog caching.
  */
 public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
+    private static final Set<String> RESERVED_SYSTEM_DOMAINS = Set.of(
+        "stvn_core",
+        "stvn_ir",
+        "stvn_cas"
+    );
     private final CasStoragePort casStoragePort;
     private final IndexRepositoryPort indexRepositoryPort;
     private final VersionCatalogCache versionCatalogCache;
@@ -162,6 +168,11 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         if (!declaredName.matches("^[a-zA-Z0-9_-]{1,64}$") || !declaredDomain.matches("^[a-zA-Z0-9_-]{1,64}$")) {
             return new PublishResult.ValidationError(List.of(
                 new CompileDiagnostic("ERR_INVALID_METADATA_FACET: #name and #domain must match atomic POSIX pattern ^[a-zA-Z0-9_-]{1,64}$", 1, 1)
+            ));
+        }
+        if (RESERVED_SYSTEM_DOMAINS.contains(declaredDomain)) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_RESERVED_DOMAIN_PROHIBITED: User document cannot declare reserved system domain '" + declaredDomain + "'", 1, 1)
             ));
         }
 
@@ -389,6 +400,11 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         if (!binDeclaredName.matches("^[a-zA-Z0-9_-]{1,64}$") || !binDeclaredDomain.matches("^[a-zA-Z0-9_-]{1,64}$")) {
             return new PublishResult.ValidationError(List.of(
                 new CompileDiagnostic("ERR_INVALID_METADATA_FACET: #name and #domain must match atomic POSIX pattern ^[a-zA-Z0-9_-]{1,64}$", 1, 1)
+            ));
+        }
+        if (RESERVED_SYSTEM_DOMAINS.contains(binDeclaredDomain)) {
+            return new PublishResult.ValidationError(List.of(
+                new CompileDiagnostic("ERR_RESERVED_DOMAIN_PROHIBITED: Binary schema cannot declare reserved system domain '" + binDeclaredDomain + "'", 1, 1)
             ));
         }
         String[] binSlots = extractStemSlots(schemaName);

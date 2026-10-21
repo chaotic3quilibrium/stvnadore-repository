@@ -8,7 +8,7 @@ import java.nio.file.Path;
 
 /**
  * FileSystem implementation of CasStoragePort.
- * Implements 2/62 path sharding: {@code <root>/<hash_prefix_2>/<hash_suffix_62>.stvn_cas}.
+ * Implements 2/64 path sharding: {@code <root>/<hash_prefix_2>/<full_hash_64>.stvn_cas.stvn}.
  */
 public class FileSystemCasStorage implements CasStoragePort {
     private final Path root;
@@ -48,7 +48,12 @@ public class FileSystemCasStorage implements CasStoragePort {
         Path targetFile = getPathForHash(casHash);
         try {
             if (!Files.exists(targetFile)) {
-                // Dual-read fallback for legacy 2/62 layout during in-flight migration
+                // Fallback 1: Transitional 2.0.0-early layout (<full_hash_64>.cas.stvn)
+                Path transitionalFile = root.resolve(casHash.substring(0, 2)).resolve(casHash + ".cas.stvn");
+                if (Files.exists(transitionalFile)) {
+                    return Files.readAllBytes(transitionalFile);
+                }
+                // Fallback 2: Legacy 1.x 2/62 layout (<hash_suffix_62>.stvn_cas)
                 Path legacyFile = root.resolve(casHash.substring(0, 2)).resolve(casHash.substring(2) + ".stvn_cas");
                 if (Files.exists(legacyFile)) {
                     return Files.readAllBytes(legacyFile);
@@ -65,10 +70,10 @@ public class FileSystemCasStorage implements CasStoragePort {
      * Computes the normalized sharded file path for a 64-character CAS hash.
      *
      * @param casHash 64-character lowercase hexadecimal hash
-     * @return resolved path on disk: {@code <root>/<prefix_2>/<full_hash_64>.cas.stvn}
+     * @return resolved path on disk: {@code <root>/<prefix_2>/<full_hash_64>.stvn_cas.stvn}
      */
     public Path getPathForHash(String casHash) {
         String prefix = casHash.substring(0, 2);
-        return root.resolve(prefix).resolve(casHash + ".cas.stvn");
+        return root.resolve(prefix).resolve(casHash + ".stvn_cas.stvn");
     }
 }

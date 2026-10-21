@@ -156,7 +156,7 @@ public class StvnCoreV200AlignmentIntegrationTest {
 
         // Verify physical file sharding on disk (2/64 layout)
         Path shardedFile = tempCasRoot.resolve(expectedCasHash.substring(0, 2))
-                                     .resolve(expectedCasHash + ".cas.stvn");
+                                     .resolve(expectedCasHash + ".stvn_cas.stvn");
         assertTrue(Files.exists(shardedFile), "Physical CAS envelope must exist at 2/64 sharded path");
     }
 
@@ -216,7 +216,7 @@ public class StvnCoreV200AlignmentIntegrationTest {
                 #kind #DEFS
               }
               :defs {
-                :RecordId { #unsigned #size 32 } :Int
+                :RecordId { #unsigned #size 16 } :Int
               }
             }
             """;
@@ -278,7 +278,7 @@ public class StvnCoreV200AlignmentIntegrationTest {
         // Count CAS files after canonical publication
         long casFilesBefore;
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            casFilesBefore = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            casFilesBefore = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
         }
 
         // 2. Publish Alias (different name, identical canonical AST content)
@@ -298,7 +298,7 @@ public class StvnCoreV200AlignmentIntegrationTest {
         // 3. Invariant check: Zero extra CAS files persisted
         long casFilesAfter;
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            casFilesAfter = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            casFilesAfter = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
         }
         assertEquals(casFilesBefore, casFilesAfter, "Alias conflict must NOT write duplicate or orphaned CAS envelope");
     }
@@ -378,7 +378,7 @@ public class StvnCoreV200AlignmentIntegrationTest {
                 #kind #DEFS
               }
               :defs {
-                :TokenId { #unsigned #size 32 } :Int
+                :TokenId { #unsigned #size 16 } :Int
               }
             }
             """;
@@ -452,7 +452,7 @@ public class StvnCoreV200AlignmentIntegrationTest {
 
         // Verify physical file sharding on disk (2/64 layout)
         Path shardedFile = tempCasRoot.resolve(expectedCasHash.substring(0, 2))
-                                     .resolve(expectedCasHash + ".cas.stvn");
+                                     .resolve(expectedCasHash + ".stvn_cas.stvn");
         assertTrue(Files.exists(shardedFile), "Physical CAS envelope must exist at 2/64 sharded path");
     }
 

@@ -33,7 +33,7 @@ public class StvnCasPackager {
         if (!targetName.endsWith(".stvn_d")) {
             targetName = targetName + ".stvn_d";
         }
-        return "{:meta{#name \"" + casHash + "\"#domain \"cas\"#kind #BODY}" +
+        return "{:meta{#name \"" + casHash + "\"#domain \"stvn_cas\"#kind #BODY}" +
                StvnVocabulary.KEYWORD_DEFS + "{:SchemaName " + StvnVocabulary.TYPE_STRING + " " +
                ":StvnDef{" + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE_SHORT + "}" + StvnVocabulary.TYPE_STRING + "}" +
                StvnVocabulary.KEYWORD_TYPE + " " + StvnVocabulary.TYPE_TUPLE + "(:SchemaName :StvnDef)" +
@@ -60,4 +60,4 @@ public class StvnCasPackager {
         }
         return Optional.empty();
     }
-}
+}

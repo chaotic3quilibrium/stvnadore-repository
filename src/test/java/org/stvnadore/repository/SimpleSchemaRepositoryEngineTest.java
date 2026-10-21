@@ -748,4 +748,45 @@ public class SimpleSchemaRepositoryEngineTest {
         verifyNoInteractions(casStoragePort);
         verifyNoInteractions(indexRepositoryPort);
     }
+
+    @Test
+    public void testGate1RejectsExcisedLegacyExtensionsStvnInclAndCas() {
+        String[] legacyExtensions = new String[] {
+            "schema.stvn_incl", "schema.stvn_inclf", "schema.stvn_cas",
+            "schema.stvn_bin", "schema.stvn_f", "schema.stvn_df",
+            "schema.stvn_bf", "schema.stvn_bdf"
+        };
+        String sourceText = "{\n  :meta {\n    #name \"schema\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :UserId { #unsigned #size 16 } :Int\n  }\n}";
+
+        for (String legacyName : legacyExtensions) {
+            PublishRequest request = new PublishRequest(legacyName, sourceText);
+            PublishResult result = engine.publish(request);
+
+            assertInstanceOf(PublishResult.ValidationError.class, result, "Must reject legacy extension: " + legacyName);
+            PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+            assertTrue(error.diagnostics().getFirst().message().contains("ERR_LEGACY_FILE_EXTENSION_PURGED"),
+                "Diagnostic must contain ERR_LEGACY_FILE_EXTENSION_PURGED for: " + legacyName);
+        }
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
+
+    @Test
+    public void testGate2RejectsReservedSystemDomainsInMeta() {
+        String[] reservedDomains = new String[] { "stvn_core", "stvn_ir", "stvn_cas" };
+
+        for (String domain : reservedDomains) {
+            String sourceText = "{\n  :meta {\n    #name \"reserved_test\"\n    #domain \"" + domain + "\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #size 16 } :Int\n  }\n}";
+            PublishRequest request = new PublishRequest("reserved_test." + domain + ".stvn_d", sourceText);
+            PublishResult result = engine.publish(request);
+
+            assertInstanceOf(PublishResult.ValidationError.class, result, "Must reject reserved system domain: " + domain);
+            PublishResult.ValidationError error = (PublishResult.ValidationError) result;
+            assertTrue(error.diagnostics().stream().anyMatch(d -> d.message().contains("ERR_RESERVED_DOMAIN_PROHIBITED")
+                    || d.message().contains("Reserved system domain prohibited")),
+                "ValidationError must report reserved system domain violation for domain: " + domain);
+        }
+        verifyNoInteractions(casStoragePort);
+        verifyNoInteractions(indexRepositoryPort);
+    }
 }

@@ -40,32 +40,41 @@ public class FileSystemCasScannerTest {
     public void testScanTraversesAndFiltersCorrectly() throws IOException {
         String hash1 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
         String hash2 = "ff0016bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        String hash3 = "cc1116bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
-        // Create 2/62 sharded paths
+        // Create canonical 2/64 path (.stvn_cas.stvn)
         Path dir1 = tempDir.resolve("ba");
         Files.createDirectories(dir1);
-        Path file1 = dir1.resolve(hash1.substring(2) + ".stvn_cas");
+        Path file1 = dir1.resolve(hash1 + ".stvn_cas.stvn");
         Files.writeString(file1, "envelope data 1");
 
+        // Create transitional 2/64 path (.cas.stvn)
         Path dir2 = tempDir.resolve("ff");
         Files.createDirectories(dir2);
-        Path file2 = dir2.resolve(hash2.substring(2) + ".stvn_cas");
+        Path file2 = dir2.resolve(hash2 + ".cas.stvn");
         Files.writeString(file2, "envelope data 2");
 
-        // Create a non-.stvn_cas file
+        // Create legacy 2/62 path (.stvn_cas)
+        Path dir3 = tempDir.resolve("cc");
+        Files.createDirectories(dir3);
+        Path file3 = dir3.resolve(hash3.substring(2) + ".stvn_cas");
+        Files.writeString(file3, "envelope data 3");
+
+        // Create a non-CAS file
         Path invalidFile = dir1.resolve("invalid.txt");
         Files.writeString(invalidFile, "txt data");
 
         // Create a file in .quarantine directory
         Path quarantineDir = tempDir.resolve(".quarantine");
         Files.createDirectories(quarantineDir);
-        Path quarantinedFile = quarantineDir.resolve("corrupt.stvn_cas");
+        Path quarantinedFile = quarantineDir.resolve("corrupt.stvn_cas.stvn");
         Files.writeString(quarantinedFile, "quarantined");
 
         List<String> hashes = scanner.listAllCasHashes();
-        assertEquals(2, hashes.size());
+        assertEquals(3, hashes.size());
         assertTrue(hashes.contains(hash1));
         assertTrue(hashes.contains(hash2));
+        assertTrue(hashes.contains(hash3));
         assertFalse(hashes.contains("corrupt"));
     }
 }

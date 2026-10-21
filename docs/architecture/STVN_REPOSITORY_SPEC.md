@@ -39,7 +39,7 @@ The STVN ecosystem divides architectural governance between two authoritative sp
    - Binary serialization strategies (`BinaryEncodingStrategy`), Byte 4 and Byte 5 framing, and memory-mapped reader APIs.
 
 2. **`STVN_REPOSITORY_SPEC.md` Governance Scope:**
-   - Physical Content-Addressable Storage (CAS) envelope formatting and sharded directory layouts (`.cas.stvn`).
+   - Physical Content-Addressable Storage (CAS) envelope formatting and sharded directory layouts (`.stvn_cas.stvn`).
    - Relational catalog schema design (`version_catalog`, `schema_source_audit`), domain indexing, and unique constraint invariants.
    - HTTP ingress boundary gates (Gate 1 filename hygiene, Gate 2 document identity verification), payload sanitization, capacity bounds, and diagnostic status mappings.
    - Nominal identity hashing and the Nominal Bijectivity Invariant ($1:1$ Law).
@@ -137,8 +137,8 @@ flowchart TD
     Engine -->|"2. Insert Unique Record"| DB["Relational Database Catalog"]:::db
 
     subgraph "Physical CAS Tier"
-        CAS --> ShardPath["data/cas/{prefix_2}/{full_hash_64}.cas.stvn"]:::cas
-        CAS --> Quarantine["data/cas/.quarantine/{full_hash_64}.cas.stvn.{ts}.{REASON}.quarantine"]:::cas
+        CAS --> ShardPath["data/cas/{prefix_2}/{full_hash_64}.stvn_cas.stvn"]:::cas
+        CAS --> Quarantine["data/cas/.quarantine/{full_hash_64}.stvn_cas.stvn.{ts}.{REASON}.quarantine"]:::cas
     end
 
     subgraph "Relational Catalog Tier"
@@ -154,29 +154,29 @@ The physical CAS tier stores immutable schema envelope files on the filesystem.
 #### 3.1.1 2/64 Hexadecimal Sharding Layout
 CAS addresses consist of 64-character lowercase hexadecimal SHA-256 digests. To avoid filesystem directory scaling limits, the storage engine partitions files into a two-level hierarchy using full 64-character hash stems:
 - **Prefix Directory:** The first 2 characters of the hash (`[0-9a-f]{2}`).
-- **Payload File:** The full 64-character hash with the `.cas.stvn` extension (`[0-9a-f]{64}.cas.stvn`).
+- **Payload File:** The full 64-character hash with the `.stvn_cas.stvn` extension (`[0-9a-f]{64}.stvn_cas.stvn`).
 
 ```
 <CAS_ROOT>/
 ├── 4a/
-│   └── 4a1f8b3c...e890.cas.stvn
+│   └── 4a1f8b3c...e890.stvn_cas.stvn
 ├── 7b/
-│   └── 7b09c2a1...4412.cas.stvn
+│   └── 7b09c2a1...4412.stvn_cas.stvn
 └── .quarantine/
-    └── 9e28...11.cas.stvn.1791663751.CORRUPT_ENVELOPE.quarantine
+    └── 9e28...11.stvn_cas.stvn.1791663751.CORRUPT_ENVELOPE.quarantine
 ```
 
 #### 3.1.2 CAS Envelope Document Format
-Physical CAS files do not store bare source code. Files store an authoritative STVN document called the CAS envelope. The envelope records Document Identity (`#domain "cas"`, `#kind #BODY`), the nominal schema filename, verification tag, and source code:
+Physical CAS files do not store bare source code. Files store an authoritative STVN document called the CAS envelope. The envelope records Document Identity (`#domain "stvn_cas"`, `#kind #BODY`), the nominal schema filename, verification tag, and source code:
 
 ```stvn
-{:meta{#name "4a1f8b3c...e890"#domain "cas"#kind #BODY}:defs{:SchemaName :String :StvnDef{#preserveIndent #T}:String}:type :Tuple(:SchemaName :StvnDef):body ("customer_profile.stvn_d" """[SHA256-4a1f8b3c...e890]
+{:meta{#name "4a1f8b3c...e890"#domain "stvn_cas"#kind #BODY}:defs{:SchemaName :String :StvnDef{#preserveIndent #T}:String}:type :Tuple(:SchemaName :StvnDef):body ("customer_profile.stvn_d" """[SHA256-4a1f8b3c...e890]
 {:meta{#name "customer_profile"#domain "crm"#kind #DEFS}:defs{:CustomerId {#size 64 #unsigned} :Int :CustomerName {#minSize 1 #maxSize 128} :String}}
 [SHA256-4a1f8b3c...e890]""")}
 ```
 
 Envelope documents conform to STVN 2.0.0 standards:
-- Root `:meta` declares `#name "<full_hash_64>"`, `#domain "cas"`, and `#kind #BODY`.
+- Root `:meta` declares `#name "<full_hash_64>"`, `#domain "stvn_cas"`, and `#kind #BODY`.
 - Boolean facets use canonical short forms (`#T`).
 - Braces are zero-bracket padded without internal whitespace padding.
 
@@ -321,7 +321,7 @@ The repository includes a background worker (`RelationalProjectionSweeper`) to r
 ### 6.1 Sweeper Reconciliation Lifecycle
 
 The projection sweeper operates on a virtual thread:
-1. **Directory Enumeration:** Scans `<CAS_ROOT>` and enumerates all `.cas.stvn` and legacy `.stvn_cas` files.
+1. **Directory Enumeration:** Scans `<CAS_ROOT>` and enumerates all `.stvn_cas.stvn`, transitional `.cas.stvn`, and legacy `.stvn_cas` files.
 2. **Index Check:** Checks `indexRepository.existsByHash(casHash)`. If present, skips the file.
 3. **Envelope Parsing:** Reads the physical envelope and unpacks `(schemaName, innerSourceText)`.
 4. **Validation Re-run:** Compiles `innerSourceText` using `StvnCompiler.compileToResult(STRICT)`.
@@ -333,7 +333,7 @@ The projection sweeper operates on a virtual thread:
 
 If a file in CAS storage fails any verification step, the sweeper isolates the file immediately. The sweeper moves the file to `<CAS_ROOT>/.quarantine/` using an atomic file move:
 
-$$\text{<CAS\_ROOT>/.quarantine/<full\_hash\_64>.cas.stvn.<timestamp>.<REASON>.quarantine}$$
+$$\text{<CAS\_ROOT>/.quarantine/<full\_hash\_64>.stvn_cas.stvn.<timestamp>.<REASON>.quarantine}$$
 
 #### Quarantine Failure Reasons:
 - `EMPTY_PAYLOAD`: Physical file contains zero bytes.
@@ -357,6 +357,6 @@ Implementations of `stvnadore-repository` must satisfy this verification checkli
 - [x] **Check 3 (Idempotent Collision):** Return `PublishResult.IdempotentCollision` (HTTP 200) only when both schema name and hash match.
 - [x] **Check 4 (Schema Mutation Conflict):** Return `PublishResult.SchemaConflict` (HTTP 409) when schema name exists with a different hash.
 - [x] **Check 5 (Fail-Closed Intake):** Reject raw tabs, legacy compound tokens, and `#size` on `:String` with HTTP 422.
-- [x] **Check 6 (Envelope Modernization):** Package envelopes using `:meta{#name "<casHash>"#domain "cas"#kind #BODY}`, `:Tuple(:SchemaName :StvnDef)`, and `.stvn_d`.
+- [x] **Check 6 (Envelope Modernization):** Package envelopes using `:meta{#name "<casHash>"#domain "stvn_cas"#kind #BODY}`, `:Tuple(:SchemaName :StvnDef)`, and `.stvn_d`.
 - [x] **Check 7 (Forensic Quarantine):** Relocate corrupt or tampered CAS files to `.quarantine/` with diagnostic tags.
 - [x] **Check 8 (Relational Domain Column):** Persist and query `domain VARCHAR(255)` with compound index `(domain, schema_name)`.

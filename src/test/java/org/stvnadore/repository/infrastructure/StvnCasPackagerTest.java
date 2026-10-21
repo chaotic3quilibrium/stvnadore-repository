@@ -24,7 +24,7 @@ public class StvnCasPackagerTest {
         String envelope = StvnCasPackager.packageEnvelope(schemaName, casHash, sourceText);
 
         // Verify it contains the required headers and markers
-        assertTrue(envelope.contains(":meta{#name \"" + casHash + "\"#domain \"cas\"#kind #BODY}"));
+        assertTrue(envelope.contains(":meta{#name \"" + casHash + "\"#domain \"stvn_cas\"#kind #BODY}"));
         assertTrue(envelope.contains(":defs{"));
         assertTrue(envelope.contains(":SchemaName :String"));
         assertTrue(envelope.contains(":StvnDef{" + StvnVocabulary.FACET_KW_PRESERVE_INDENT + " " + StvnVocabulary.VAL_TRUE_SHORT + "}:String"));
@@ -34,8 +34,8 @@ public class StvnCasPackagerTest {
         assertTrue(envelope.contains("\"\"\"[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]"));
         assertTrue(envelope.contains("[SHA256-ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad]\"\"\""));
 
-        // Compile and parse via the upstream compiler to verify validity
-        Optional<StvnValue> compiledOpt = StvnCompiler.compilePayload(envelope);
+        // Compile and parse via the upstream compiler to verify validity under SYSTEM_STRICT
+        Optional<StvnValue> compiledOpt = StvnCompiler.compilePayload(envelope, null, StvnParserConfig.SYSTEM_STRICT);
         assertTrue(compiledOpt.isPresent());
 
         StvnValue value = compiledOpt.get();

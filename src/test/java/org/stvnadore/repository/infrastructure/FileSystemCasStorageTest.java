@@ -30,15 +30,28 @@ public class FileSystemCasStorageTest {
 
         storage.write(casHash, content);
 
-        // Verify file exists under sharded directory hierarchy: <root>/<prefix_2>/<full_hash_64>.cas.stvn
+        // Verify file exists under sharded directory hierarchy: <root>/<prefix_2>/<full_hash_64>.stvn_cas.stvn
         String prefix = casHash.substring(0, 2);
-        Path expectedFile = tempDir.resolve(prefix).resolve(casHash + ".cas.stvn");
+        Path expectedFile = tempDir.resolve(prefix).resolve(casHash + ".stvn_cas.stvn");
         assertTrue(Files.exists(expectedFile));
         assertArrayEquals(content, Files.readAllBytes(expectedFile));
 
         // Verify we can read it back via the storage port
         byte[] readContent = storage.read(casHash);
         assertArrayEquals(content, readContent);
+    }
+
+    @Test
+    public void testDualReadFallbackForTransitionalCasStvn() throws IOException {
+        String casHash = "ab1216bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        byte[] transitionalContent = "transitional content".getBytes(StandardCharsets.UTF_8);
+        String prefix = casHash.substring(0, 2);
+        Path dir = tempDir.resolve(prefix);
+        Files.createDirectories(dir);
+        Files.write(dir.resolve(casHash + ".cas.stvn"), transitionalContent);
+
+        byte[] read = storage.read(casHash);
+        assertArrayEquals(transitionalContent, read);
     }
 
     @Test

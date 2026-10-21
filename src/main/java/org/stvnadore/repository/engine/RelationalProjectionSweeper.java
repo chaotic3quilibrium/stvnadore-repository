@@ -229,13 +229,16 @@ public class RelationalProjectionSweeper implements Runnable {
 
     private void quarantine(String casHash, String failureReason) {
         String prefix = casHash.substring(0, 2);
-        Path sourceFile = casRoot.resolve(prefix).resolve(casHash + ".cas.stvn");
+        Path sourceFile = casRoot.resolve(prefix).resolve(casHash + ".stvn_cas.stvn");
+        if (!Files.exists(sourceFile)) {
+            sourceFile = casRoot.resolve(prefix).resolve(casHash + ".cas.stvn");
+        }
         if (!Files.exists(sourceFile)) {
             sourceFile = casRoot.resolve(prefix).resolve(casHash.substring(2) + ".stvn_cas");
         }
         Path quarantineDir = casRoot.resolve(".quarantine");
         long timestamp = System.currentTimeMillis();
-        String originalFilename = casHash + ".cas.stvn";
+        String originalFilename = casHash + ".stvn_cas.stvn";
         String quarantineFilename = originalFilename + "." + timestamp + "." + failureReason + ".quarantine";
         Path targetFile = quarantineDir.resolve(quarantineFilename);
 

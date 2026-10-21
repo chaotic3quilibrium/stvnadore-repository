@@ -134,7 +134,7 @@ public class BinaryIngressSecurityIntegrationTest {
 
         // Verify Zero-Trust Invariant: Nothing committed to physical CAS storage
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertEquals(0, casFileCount, "Tampered payload must NEVER be persisted to CAS storage");
         }
     }
@@ -158,7 +158,7 @@ public class BinaryIngressSecurityIntegrationTest {
             "Response body must report buffer size violation: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertEquals(0, casFileCount, "Truncated payload must NEVER be persisted to CAS storage");
         }
     }
@@ -182,7 +182,7 @@ public class BinaryIngressSecurityIntegrationTest {
             "Response body must report strategy 0x7 rejection: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertEquals(0, casFileCount, "Sentinel payload must NEVER be persisted to CAS storage");
         }
     }
@@ -223,7 +223,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertTrue(response.body().contains("Ephemeral Strategy (0x8)"), "Must require Ephemeral Strategy: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertEquals(0, casFileCount, "Strategy 0x0 payload must NEVER be persisted to CAS storage");
         }
     }
@@ -258,7 +258,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertTrue(response.body().contains("ERR_UNSUPPORTED_STRATEGY"));
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertEquals(0, casFileCount, "Strategy 0x7 payload must NEVER be persisted to CAS storage");
         }
     }
@@ -337,7 +337,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertEquals(201, response.statusCode(), "Valid binary payload must return HTTP 201: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertTrue(casFileCount > 0, "Valid payload must be persisted to CAS storage");
         }
     }
@@ -361,7 +361,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertTrue(response.body().contains("Top-level :type and :body sections are prohibited"), "Must prohibit :type section: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertEquals(0, casFileCount, "Invalid Gate 2 payload must NEVER be persisted to CAS storage");
         }
     }
@@ -385,7 +385,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertTrue(response.body().contains("Top-level :type and :body sections are prohibited"), "Must prohibit :body section: " + response.body());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertEquals(0, casFileCount, "Invalid Gate 2 payload must NEVER be persisted to CAS storage");
         }
     }
@@ -407,7 +407,7 @@ public class BinaryIngressSecurityIntegrationTest {
         assertEquals(422, response.statusCode());
 
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            long casFileCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            long casFileCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
             assertEquals(0, casFileCount, "Zero defs payload must NEVER be persisted to CAS storage");
         }
     }

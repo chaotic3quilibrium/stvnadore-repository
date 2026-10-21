@@ -390,6 +390,42 @@ public class SchemaPublishHandlerTest {
         verify(ctx).result(storedBinary);
     }
 
+    @Test
+    public void testGate1RejectsLegacyExtensionsStvnInclAndCas() throws Exception {
+        String name = "service.stvn_incl";
+        String body = "{:meta{#name \"service\"#domain \"test\"#kind #DEFS}:defs{:A :Int}}";
+        List<CompileDiagnostic> diagnostics = List.of(
+            new CompileDiagnostic("ERR_LEGACY_FILE_EXTENSION_PURGED: Excised legacy file extension is permanently prohibited: " + name, 1, 1)
+        );
+        when(ctx.contentType()).thenReturn("application/stvn");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.body()).thenReturn(body);
+        when(engine.publish(new PublishRequest(name, body))).thenReturn(new PublishResult.ValidationError(diagnostics));
+
+        handler.handle(ctx);
+
+        verify(ctx).status(422);
+        verify(ctx).json(diagnostics);
+    }
+
+    @Test
+    public void testGate2RejectsReservedSystemDomains() throws Exception {
+        String name = "service.stvn_d";
+        String body = "{:meta{#name \"service\"#domain \"stvn_core\"#kind #DEFS}:defs{:A :Int}}";
+        List<CompileDiagnostic> diagnostics = List.of(
+            new CompileDiagnostic("ERR_RESERVED_DOMAIN_PROHIBITED: User document cannot declare reserved system domain 'stvn_core'", 1, 1)
+        );
+        when(ctx.contentType()).thenReturn("application/stvn");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.body()).thenReturn(body);
+        when(engine.publish(new PublishRequest(name, body))).thenReturn(new PublishResult.ValidationError(diagnostics));
+
+        handler.handle(ctx);
+
+        verify(ctx).status(422);
+        verify(ctx).json(diagnostics);
+    }
+
     private static byte[] createValidEphemeral0x8Payload(String name, String domain, String schemaText) {
         byte[] textBytes = schemaText.getBytes(StandardCharsets.UTF_8);
         byte[] nameBytes = name.getBytes(StandardCharsets.UTF_8);

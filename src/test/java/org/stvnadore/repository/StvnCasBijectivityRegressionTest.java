@@ -148,7 +148,7 @@ public class StvnCasBijectivityRegressionTest {
             Map.entry("schema_int_16.stvn_d", "{\n  :meta {\n    #name \"schema_int_16\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #size 16 } :Int\n  }\n}"),
             Map.entry("schema_int_64.stvn_d", "{\n  :meta {\n    #name \"schema_int_64\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #size 64 } :Int\n  }\n}"),
             Map.entry("schema_int_bare.stvn_d", "{\n  :meta {\n    #name \"schema_int_bare\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val :Int\n  }\n}"),
-            Map.entry("schema_int_unsigned_32.stvn_d", "{\n  :meta {\n    #name \"schema_int_unsigned_32\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #unsigned #size 32 } :Int\n  }\n}"),
+            Map.entry("schema_int_unsigned_48.stvn_d", "{\n  :meta {\n    #name \"schema_int_unsigned_48\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Val { #unsigned #size 48 } :Int\n  }\n}"),
 
             // Temporal Scales
             Map.entry("schema_time_s.stvn_d", "{\n  :meta {\n    #name \"schema_time_s\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    :Ts { #s } :TimeEpoch\n  }\n}"),
@@ -217,7 +217,7 @@ public class StvnCasBijectivityRegressionTest {
             assertEquals(source.trim(), getResponse.body().trim(), "Retrieved content must match original source for " + name);
 
             // Invariant 3: Physical CAS file exists in 2/64 layout (<hash[0..2]>/<full_hash_64>.cas.stvn)
-            Path shardedFile = tempCasRoot.resolve(casHash.substring(0, 2)).resolve(casHash + ".cas.stvn");
+            Path shardedFile = tempCasRoot.resolve(casHash.substring(0, 2)).resolve(casHash + ".stvn_cas.stvn");
             assertTrue(Files.exists(shardedFile), "Physical CAS envelope must exist at 2/64 path for " + name);
         }
     }
@@ -256,7 +256,7 @@ public class StvnCasBijectivityRegressionTest {
         // Count physical CAS files on disk
         long baselineCount;
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            baselineCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            baselineCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
         }
         assertEquals(1L, baselineCount, "Exactly 1 CAS file must exist after initial publication");
 
@@ -275,7 +275,7 @@ public class StvnCasBijectivityRegressionTest {
         // Invariant: Physical CAS storage must remain completely invariant (zero writes)
         long afterAliasCount;
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            afterAliasCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            afterAliasCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
         }
         assertEquals(baselineCount, afterAliasCount, "Alias conflict must NEVER persist a duplicate or orphaned CAS envelope");
 
@@ -310,7 +310,7 @@ public class StvnCasBijectivityRegressionTest {
         // Invariant: Physical CAS storage must still remain completely invariant
         long afterMutationCount;
         try (Stream<Path> stream = Files.walk(tempCasRoot)) {
-            afterMutationCount = stream.filter(p -> p.toString().endsWith(".cas.stvn")).count();
+            afterMutationCount = stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).count();
         }
         assertEquals(baselineCount, afterMutationCount, "Mutation conflict must NEVER write to physical CAS storage");
     }
@@ -328,7 +328,7 @@ public class StvnCasBijectivityRegressionTest {
               }
               :defs {
                 :package :com/example/iot {
-                  :DeviceId { #unsigned #size 32 } :Int
+                  :DeviceId { #unsigned #size 16 } :Int
                   :Reading { #exact } :Float
                 }
               }
@@ -422,7 +422,7 @@ public class StvnCasBijectivityRegressionTest {
               }
               :defs {
                 :package :com/example/iot {
-                  :DeviceId { #unsigned #size 32 } :Int
+                  :DeviceId { #unsigned #size 16 } :Int
                   :Reading { #exact } :Float
                 }
               }
