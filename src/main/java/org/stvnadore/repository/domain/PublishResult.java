@@ -10,8 +10,18 @@ public sealed interface PublishResult {
    * Indicates that the schema was successfully published and indexed.
    *
    * @param metadata the published schema metadata
+   * @param warnings non-fatal compiler diagnostics (such as W003) recorded during validation
    */
-  record Success(SchemaMetadata metadata) implements PublishResult {}
+  record Success(SchemaMetadata metadata, List<CompileDiagnostic> warnings) implements PublishResult {
+    /**
+     * Backward-compatible convenience constructor defaulting warnings to an empty list.
+     *
+     * @param metadata the published schema metadata
+     */
+    public Success(SchemaMetadata metadata) {
+      this(metadata, List.of());
+    }
+  }
   /**
    * Indicates that the schema name and content hash already exist (idempotent duplicate).
    *

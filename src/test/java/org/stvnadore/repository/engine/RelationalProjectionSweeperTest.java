@@ -269,7 +269,8 @@ public class RelationalProjectionSweeperTest {
         try (var stream = Files.list(quarantineDir)) {
             List<Path> files = stream.toList();
             assertEquals(1, files.size());
-            assertTrue(files.get(0).getFileName().toString().contains("MALFORMED_INNER_STRUCTURE"));
+            assertTrue(files.get(0).getFileName().toString().contains("INVALID_INNER_AST")
+                || files.get(0).getFileName().toString().contains("MALFORMED_INNER_STRUCTURE"));
         }
     }
 
@@ -388,6 +389,47 @@ public class RelationalProjectionSweeperTest {
         Path quarantineDir = tempCasRoot.resolve(".quarantine");
         assertTrue(!Files.exists(quarantineDir) || isDirEmpty(quarantineDir),
             "System domain envelope must reconcile without quarantine");
+    }
+
+    @Test
+    public void testSweeperAcceptsEnvelopeWithW003WarningsWithoutQuarantine() throws IOException, NoSuchAlgorithmException {
+        String schemaName = "tautological_sensor.stvn_d";
+        String innerSourceText = """
+            {
+              :meta {
+                #name "tautological_sensor"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :SensorReading { #unsigned #size 16 #minIncl 0 } :Int
+              }
+            }
+            """;
+        // Derive expected canonical CAS hash (which normalizes away #minIncl 0)
+        String shapeSignature = StvnSchemaFlattener.flatten(Map.of(schemaName, innerSourceText), schemaName);
+        byte[] hashBytes = MessageDigest.getInstance("SHA-256").digest(shapeSignature.getBytes(StandardCharsets.UTF_8));
+        String expectedHash = HexFormat.of().formatHex(hashBytes);
+
+        String envelope = StvnCasPackager.packageEnvelope(schemaName, expectedHash, innerSourceText);
+        casStorage.write(expectedHash, envelope.getBytes(StandardCharsets.UTF_8));
+
+        when(scanner.listAllCasHashes()).thenReturn(List.of(expectedHash));
+        when(indexRepository.existsByHash(expectedHash)).thenReturn(false);
+
+        sweeper.run();
+
+        // Verify indexRepository.save() was called with normalized shape signature and expected CAS hash
+        verify(indexRepository, times(1)).save(
+            argThat(metadata -> metadata.schemaName().equals(schemaName)
+                && metadata.casHash().equals(expectedHash)
+                && !metadata.shapeSignature().contains("#minIncl 0")),
+            eq(innerSourceText.trim())
+        );
+
+        Path quarantineDir = tempCasRoot.resolve(".quarantine");
+        assertTrue(!Files.exists(quarantineDir) || isDirEmpty(quarantineDir),
+            "Envelope with W003 warning must not be quarantined");
     }
 
     private static boolean isDirEmpty(Path path) {

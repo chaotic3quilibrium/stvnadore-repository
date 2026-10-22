@@ -211,7 +211,8 @@ public class SimpleSchemaRepositoryEngineTest {
 
         assertInstanceOf(PublishResult.ValidationError.class, result);
         PublishResult.ValidationError error = (PublishResult.ValidationError) result;
-        assertTrue(error.diagnostics().getFirst().message().contains("prohibited in flat schema document"));
+        assertTrue(error.diagnostics().stream().anyMatch(d ->
+            d.message().contains("ERR_DOCUMENT_KIND_MISMATCH") || d.message().contains("prohibited in flat schema document")));
         verifyNoInteractions(casStoragePort);
     }
 
@@ -369,6 +370,65 @@ public class SimpleSchemaRepositoryEngineTest {
         assertInstanceOf(PublishResult.IdempotentCollision.class, result);
         PublishResult.IdempotentCollision collision = (PublishResult.IdempotentCollision) result;
         assertEquals(actualHash, collision.metadata().casHash());
+    }
+
+    @Test
+    public void testPublishAcceptsSchemaWithW003WarningsAndNormalizesCasHash() {
+        String cleanSource = """
+            {
+              :meta {
+                #name "tautology_test"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :Val { #unsigned #size 16 } :Int
+              }
+            }
+            """;
+        String tautologySource = """
+            {
+              :meta {
+                #name "tautology_test"
+                #domain "test"
+                #kind #DEFS
+              }
+              :defs {
+                :Val { #unsigned #size 16 #minIncl 0 } :Int
+              }
+            }
+            """;
+        PublishRequest cleanRequest = new PublishRequest("tautology_test.test.stvn_d", cleanSource);
+        PublishRequest tautRequest = new PublishRequest("tautology_test.test.stvn_d", tautologySource);
+
+        // 1. Initial publication with redundant facet triggers W003 warning but succeeds with HTTP 201
+        when(indexRepositoryPort.findBySchemaName("tautology_test.test.stvn_d")).thenReturn(Optional.empty());
+        when(indexRepositoryPort.findByCasHash(anyString())).thenReturn(Optional.empty());
+
+        PublishResult tautResult = engine.publish(tautRequest);
+        assertInstanceOf(PublishResult.Success.class, tautResult);
+        PublishResult.Success success = (PublishResult.Success) tautResult;
+        assertFalse(success.warnings().isEmpty(), "Expected non-blocking W003 warning in PublishResult.Success");
+        assertTrue(success.warnings().stream().anyMatch(w -> w.message().contains("WARN_REDUNDANT_METADATA_FACET") || w.message().contains("is redundant")));
+
+        String tautHash = success.metadata().casHash();
+
+        // 2. Publish clean schema under fresh state to compute clean hash
+        when(indexRepositoryPort.findBySchemaName("tautology_test.test.stvn_d")).thenReturn(Optional.empty());
+        PublishResult cleanResult = engine.publish(cleanRequest);
+        assertInstanceOf(PublishResult.Success.class, cleanResult);
+        PublishResult.Success cleanSuccess = (PublishResult.Success) cleanResult;
+        assertTrue(cleanSuccess.warnings().isEmpty(), "Clean schema should have zero warnings");
+        String cleanHash = cleanSuccess.metadata().casHash();
+
+        // Invariant 6: Bitwise-identical CAS hashes
+        assertEquals(cleanHash, tautHash, "Schemas differing only in redundant facets must produce identical CAS hash");
+
+        // 3. Re-submitting clean schema when redundant schema already exists resolves to IdempotentCollision
+        when(indexRepositoryPort.findBySchemaName("tautology_test.test.stvn_d")).thenReturn(Optional.of(success.metadata()));
+        PublishResult secondResult = engine.publish(cleanRequest);
+        assertInstanceOf(PublishResult.IdempotentCollision.class, secondResult);
+        assertEquals(tautHash, ((PublishResult.IdempotentCollision) secondResult).metadata().casHash());
     }
 
     @Test

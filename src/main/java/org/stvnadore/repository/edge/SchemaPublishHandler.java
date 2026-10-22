@@ -215,8 +215,11 @@ public class SchemaPublishHandler implements Handler {
 
     private void processPublishResult(Context ctx, PublishResult result) {
         switch (result) {
-            case PublishResult.Success(var metadata) -> {
+            case PublishResult.Success(var metadata, var warnings) -> {
                 ctx.status(201);
+                if (!warnings.isEmpty()) {
+                    ctx.header("X-STVN-Warnings-Count", String.valueOf(warnings.size()));
+                }
                 ctx.json(metadata);
             }
             case PublishResult.IdempotentCollision(var metadata) -> {

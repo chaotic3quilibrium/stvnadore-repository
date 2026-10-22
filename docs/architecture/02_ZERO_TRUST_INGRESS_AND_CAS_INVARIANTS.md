@@ -70,6 +70,7 @@ Every schema submitted to `/api/v1/schemas/{name}` must carry an authorized herm
 The engine compiles incoming source text before executing manual AST structure checks:
 * The engine calls `StvnCompiler.compileToResult(sourceText, schemaName, StvnParserConfig.STRICT)` and `compilePayload`.
 * Raw horizontal tab characters (`\t`, `U+0009`) fail compilation and produce diagnostic code `ERR_TAB_CHARACTER_FORBIDDEN`.
+* Non-blocking compiler warnings (such as `W003` / `WARN_REDUNDANT_METADATA_FACET`) do not halt compilation. `compileResult.hasErrors()` evaluates strictly to `false` on warnings. Valid schemas carrying `W003` diagnostics pass Headless Validation cleanly.
 * This ordering prevents AST recovery from masking tab and syntax diagnostics.
 
 ### 2.4 Gate 2: Document Identity & AST Structure Invariants
@@ -83,7 +84,7 @@ Hermetic schema leaf modules stored in CAS must maintain strict structural clean
 7. Embedded `:include` directives are strictly prohibited in hermetic schemas (`ERR_INCLUDES_PROHIBITED_IN_FLAT_DOCUMENT`).
 
 ### 2.5 Canonical Flattening & Exported Interface Retention
-* **Canonical Flattening:** `StvnSchemaFlattener.flatten(Map.of(schemaName, sourceText), schemaName)` unpacks `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), applies unary `#strip`, incorporates the collapsed `:meta` block, and canonicalizes definitions.
+* **Canonical Flattening & IR Normalization:** `StvnSchemaFlattener.flatten(Map.of(schemaName, sourceText), schemaName)` unpacks `:package` enclosures into Fully Qualified Nominal Identifiers (FQNIs), applies unary `#strip`, incorporates the collapsed `:meta` block, canonicalizes definitions, and normalizes constraints via `StvnTypeResolver.normalizeConstraints`. Tautological surface facets triggering `W003` are purged during normalization. Consequently, nominal schemas containing redundant surface syntax converge to bitwise-identical canonical preimages and CAS hashes.
 * **Exported Interface Retention:** Hermetic definition schemas (`.stvn_d`) lack a root `:type` seed; therefore, `StvnCanonicalDefinitionsResolver` retains all exported interface definitions without dead-code elimination.
 * **Deterministic CAS Addressing:** The 64-character CAS hash is computed by applying SHA-256 to the UTF-8 bytes of the flattened shape signature:
   $$\text{CAS Hash} = \text{SHA-256}(\text{shapeSignature.getBytes(StandardCharsets.UTF\_8)})$$
@@ -226,7 +227,7 @@ The server maps boundary and compilation events to HTTP status codes:
 | `415`       | Unsupported Media Type | Request `Content-Type` is null or not supported.                                                               | Media type guard                                                                         | `{"error": "Unsupported Media Type", "message": "..."}`                                 |
 | `422`       | Unprocessable Entity   | Payload > 16 MiB (`ERR_CAPACITY_OVERFLOW`), Gate 1/2 violation, compiler error (or raw tabs), CRC-32C mismatch, buffer < 9 bytes, non-0x8 strategy, or invalid `MetaControlByte`. | `CompileDiagnostic`, `MalformedPayloadException`, `UnsupportedEncodingStrategyException` | List of `CompileDiagnostic` records or `{"error": "<Category>", "message": "<reason>"}` |
 | `200`       | OK                     | Idempotent publication. Schema name and hash match existing registration.                                      | `PublishResult.IdempotentCollision`                                                      | `SchemaMetadata` JSON object                                                            |
-| `201`       | Created                | New schema verified, persisted to CAS, and cataloged.                                                          | `PublishResult.Success`                                                                  | `SchemaMetadata` JSON object                                                            |
+| `201`       | Created                | New schema verified, persisted to CAS, and cataloged. Emits `X-STVN-Warnings-Count: <N>` if warnings (e.g. `W003`) are present. | `PublishResult.Success`                                                                  | `SchemaMetadata` JSON object                                                            |
 | `202`       | Accepted               | CAS write succeeded; catalog indexing deferred to background sweeper.                                          | `PublishResult.IndexingDeferred`                                                         | `SchemaMetadata` JSON object                                                            |
 
 ---

@@ -4,6 +4,7 @@ import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
 import org.stvnadore.core.StvnCompilationResult;
 import org.stvnadore.core.StvnCompiler;
+import org.stvnadore.core.StvnDiagnostic;
 import org.stvnadore.core.StvnParserConfig;
 import org.stvnadore.core.StvnSchemaFlattener;
 import org.stvnadore.core.StvnVocabulary;
@@ -148,6 +149,18 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
             return new PublishResult.ValidationError(compileDiagnostics);
         }
 
+        // Accumulate non-fatal compiler diagnostics (e.g. W003) for presentation
+        List<CompileDiagnostic> warnings = compileResult.diagnostics().stream()
+            .filter(d -> d.severity() == StvnDiagnostic.DiagnosticSeverity.WARNING)
+            .map(d -> {
+                String msg = d.message();
+                if (d.errorCode().isPresent() && !msg.contains(d.errorCode().get())) {
+                    msg = d.errorCode().get() + ": " + msg;
+                }
+                return new CompileDiagnostic(msg, d.line(), d.column(), d.startOffset(), d.endOffset());
+            })
+            .toList();
+
         StvnDocument document = compileResult.document().orElse(null);
         if (document == null || document.meta().isEmpty()) {
             return new PublishResult.ValidationError(List.of(
@@ -283,7 +296,7 @@ public class SimpleSchemaRepositoryEngine implements SchemaRepositoryEngine {
         try {
             indexRepositoryPort.save(metadata, sourceText);
             versionCatalogCache.put(metadata);
-            return new PublishResult.Success(metadata);
+            return new PublishResult.Success(metadata, warnings);
         } catch (DuplicateIndexException e) {
             // Concurrent race fallback: inspect database to resolve whether collision was idempotent, mutation, or alias
             Optional<SchemaMetadata> concurrentOpt = indexRepositoryPort.findBySchemaName(schemaName);

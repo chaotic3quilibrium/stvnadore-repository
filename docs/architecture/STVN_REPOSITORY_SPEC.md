@@ -120,6 +120,10 @@ $$\text{GET /api/v1/schemas/cas/}\{hash\}$$
 
 The endpoint must return the exact schema associated with that hash. If the repository permitted multiple nominal schema names to register the same content hash, the resolution would become non-deterministic. Non-deterministic resolution violates Value-Oriented Programming (VOP) Canonical Equivalence and causes deserialization failures.
 
+### 2.4 Non-Blocking Tautology Governance (W003) & CAS Invariance
+
+Under STVN 2.0.0, redundant or tautological metadata facets (e.g. `#size 32` on signed `:Int` or `{ #unsigned } :Int`, `#minIncl 0` on unsigned integers, `#size 64` on continuous `:Float`, or default traits) emit non-blocking warning `W003` (`WARN_REDUNDANT_METADATA_FACET`). During AST lowering and canonical flattening (`StvnSchemaFlattener`), IR semantic normalization (`StvnTypeResolver.normalizeConstraints`) purges these redundant entries. Consequently, nominal schemas containing redundant surface syntax converge to bitwise-identical SHA-256 CAS addresses as their clean canonical counterparts. Re-submitting a schema with redundant surface syntax resolves idempotently (HTTP 200 OK) without violating `CONSTRAINT uq_version_catalog_cas_hash UNIQUE (cas_hash)`.
+
 ---
 
 ## 3. Dual-Tier Storage Architecture

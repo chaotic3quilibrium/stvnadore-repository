@@ -40,6 +40,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -703,6 +704,72 @@ public class StvnCasBijectivityRegressionTest {
         );
         assertEquals(200, getB.statusCode());
         assertTrue(getB.body().contains(":tenant/beta"));
+    }
+
+    @Test
+    @DisplayName("BIJECT-06: Proves Invariant 6 CAS hash convergence between tautological and clean schemas across dimensions")
+    void testCasHashConvergenceAcrossAllSixTautologyDimensions() throws Exception {
+        record TestCase(String name, String cleanDefs, String tautDefs) {}
+
+        List<TestCase> testCases = List.of(
+            // 1. Unsigned integer bounds
+            new TestCase("uint_bound", ":Id { #unsigned #size 16 } :Int", ":Id { #unsigned #size 16 #minIncl 0 #maxExcl 65536 } :Int"),
+            // 2. Signed integer bounds
+            new TestCase("sint_bound", ":Offset { #size 16 } :Int", ":Offset { #size 16 #minIncl -32768 #maxExcl 32768 } :Int"),
+            // 3. Bit-width defaults (signed :Int and unsigned :Int default to 32 bits)
+            new TestCase("int_size32", ":Count :Int", ":Count { #size 32 } :Int"),
+            // 4. Float sizing default (continuous :Float defaults to 64-bit IEEE 754)
+            new TestCase("flt_size64", ":Score :Float", ":Score { #size 64 } :Float"),
+            // 5. Container & String non-negative minimum size
+            new TestCase("str_minsize", ":Label :String", ":Label { #minSize 0 } :String"),
+            // 6. Primitive default traits
+            new TestCase("trait_defaults", ":Active :Boolean", ":Active { #equatable #TRUE #comparable #TRUE } :Boolean")
+        );
+
+        for (var tc : testCases) {
+            String schemaName = tc.name() + ".test.stvn_d";
+            String cleanSource = "{\n  :meta {\n    #name \"" + tc.name() + "\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    " + tc.cleanDefs() + "\n  }\n}";
+            String tautSource = "{\n  :meta {\n    #name \"" + tc.name() + "\"\n    #domain \"test\"\n    #kind #DEFS\n  }\n  :defs {\n    " + tc.tautDefs() + "\n  }\n}";
+
+            // 1. Submit Clean Schema
+            HttpRequest reqClean = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + schemaName))
+                .header("Content-Type", "application/stvn")
+                .POST(HttpRequest.BodyPublishers.ofString(cleanSource))
+                .build();
+            HttpResponse<String> resClean = httpClient.send(reqClean, HttpResponse.BodyHandlers.ofString());
+            assertEquals(201, resClean.statusCode(), "Clean schema publication must succeed with 201: " + tc.name());
+            JsonNode jsonClean = objectMapper.readTree(resClean.body());
+            String hashClean = jsonClean.get("casHash").asText();
+
+            // 2. Submit Tautological Schema (Idempotent Collision)
+            HttpRequest reqTaut = HttpRequest.newBuilder()
+                .uri(URI.create("http://localhost:" + port + "/api/v1/schemas/" + schemaName))
+                .header("Content-Type", "application/stvn")
+                .POST(HttpRequest.BodyPublishers.ofString(tautSource))
+                .build();
+            HttpResponse<String> resTaut = httpClient.send(reqTaut, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, resTaut.statusCode(), "Tautological submission must yield 200 IdempotentCollision: " + tc.name());
+            JsonNode jsonTaut = objectMapper.readTree(resTaut.body());
+            String hashTaut = jsonTaut.get("casHash").asText();
+
+            // Invariant 6 Proof: Bitwise identical CAS addresses
+            assertEquals(hashClean, hashTaut, "CAS addresses must be identical under Invariant 6 for " + tc.name());
+
+            // Clear database and storage for next test case iteration
+            try (Connection conn = dataSource.getConnection();
+                 Statement stmt = conn.createStatement()) {
+                stmt.execute("DELETE FROM schema_source_audit");
+                stmt.execute("DELETE FROM version_catalog");
+            }
+            if (Files.exists(tempCasRoot)) {
+                try (Stream<Path> stream = Files.walk(tempCasRoot)) {
+                    stream.filter(p -> p.toString().endsWith(".stvn_cas.stvn")).forEach(p -> {
+                        try { Files.deleteIfExists(p); } catch (Exception ignored) {}
+                    });
+                }
+            }
+        }
     }
 
     private static byte[] createBinarySchemaPayload(String name, String domain, String schemaText, boolean validDefs, int typeOffset, int bodyOffset) {

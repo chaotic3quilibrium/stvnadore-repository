@@ -54,6 +54,28 @@ public class SchemaPublishHandlerTest {
     }
 
     @Test
+    public void testPublishSuccessWithWarningsEmitsWarningHeader() throws Exception {
+        String name = "my-schema";
+        String body = "schema { field1: String }";
+        SchemaMetadata metadata = new SchemaMetadata(name, "ShapeSignature", "Hash123");
+        List<CompileDiagnostic> warnings = List.of(
+            new CompileDiagnostic("WARN_REDUNDANT_METADATA_FACET: facet '#minIncl 0' is redundant", 1, 1, 0, 10)
+        );
+        PublishResult result = new PublishResult.Success(metadata, warnings);
+
+        when(ctx.contentType()).thenReturn("application/stvn");
+        when(ctx.pathParam("name")).thenReturn(name);
+        when(ctx.body()).thenReturn(body);
+        when(engine.publish(new PublishRequest(name, body))).thenReturn(result);
+
+        handler.handle(ctx);
+
+        verify(ctx).status(201);
+        verify(ctx).header("X-STVN-Warnings-Count", "1");
+        verify(ctx).json(metadata);
+    }
+
+    @Test
     public void testPublishUnsupportedMediaType() throws Exception {
         when(ctx.contentType()).thenReturn("application/json");
 
